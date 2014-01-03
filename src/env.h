@@ -175,14 +175,14 @@ class Environment {
    public:
     inline uint32_t* fields();
     inline int fields_count() const;
-    inline uint32_t count() const;
+    inline bool has_listener() const;
 
    private:
     friend class Environment;  // So we can call the constructor.
     inline AsyncListener();
 
     enum Fields {
-      kCount,
+      kHasListener,
       kFieldsCount
     };
 
@@ -231,7 +231,7 @@ class Environment {
 
   inline v8::Isolate* isolate() const;
   inline uv_loop_t* event_loop() const;
-  inline bool has_async_listeners() const;
+  inline bool has_async_listener() const;
 
   static inline Environment* from_immediate_check_handle(uv_check_t* handle);
   inline uv_check_t* immediate_check_handle();
