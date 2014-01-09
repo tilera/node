@@ -3364,6 +3364,7 @@ void MacroAssembler::EnterExitFrame(bool save_doubles,
 
 void MacroAssembler::LeaveExitFrame(bool save_doubles,
                                     Register argument_count,
+                                    bool restore_context,
                                     bool do_return) {
 
   // Clear top frame.
@@ -3371,8 +3372,10 @@ void MacroAssembler::LeaveExitFrame(bool save_doubles,
   st(zero, MemOperand(t8));
 
   // Restore current context from top and clear it in debug mode.
-  li(t8, Operand(ExternalReference(Isolate::kContextAddress, isolate())));
-  ld(cp, MemOperand(t8));
+  if (restore_context) {
+    li(t8, Operand(ExternalReference(Isolate::kContextAddress, isolate())));
+    ld(cp, MemOperand(t8));
+  }
 #ifdef DEBUG
   st(r3, MemOperand(t8));
 #endif
@@ -3457,6 +3460,96 @@ void MacroAssembler::JumpIfNotHeapNumber(Register object,
   ld(scratch, FieldMemOperand(object, HeapObject::kMapOffset));
   AssertRegisterIsRoot(heap_number_map, Heap::kHeapNumberMapRootIndex);
   Branch(on_not_heap_number, ne, scratch, Operand(heap_number_map));
+}
+
+void MacroAssembler::JumpIfNotUniqueName(Register reg,
+                                         Label* not_unique_name) {
+  STATIC_ASSERT(kInternalizedTag == 0 && kStringTag == 0);
+  Label succeed;
+  And(at, reg, Operand(kIsNotStringMask | kIsNotInternalizedMask));
+  Branch(&succeed, eq, at, Operand(zero));
+  Branch(not_unique_name, ne, reg, Operand(SYMBOL_TYPE));
+
+  bind(&succeed);
+}
+
+void MacroAssembler::LookupNumberStringCache(Register object,
+                                             Register result,
+                                             Register scratch1,
+                                             Register scratch2,
+                                             Register scratch3,
+                                             Label* not_found) {
+  // Use of registers. Register result is used as a temporary.
+  Register number_string_cache = result;
+  Register mask = scratch3;
+
+  // Load the number string cache.
+  LoadRoot(number_string_cache, Heap::kNumberStringCacheRootIndex);
+
+  // Make the hash mask from the length of the number string cache. It
+  // contains two elements (number and string) for each cache entry.
+  ld(mask, FieldMemOperand(number_string_cache, FixedArray::kLengthOffset));
+  // Divide length by two (length is a smi).
+  sra(mask, mask, 32 + 1);
+  Addu(mask, mask, -1);  // Make mask.
+
+  // Calculate the entry in the number string cache. The hash value in the
+  // number string cache for smis is just the smi value, and the hash for
+  // doubles is the xor of the upper and lower words. See
+  // Heap::GetNumberStringCache.
+  Label is_smi;
+  Label load_result_from_cache;
+  JumpIfSmi(object, &is_smi);
+  CheckMap(object,
+           scratch1,
+           Heap::kHeapNumberMapRootIndex,
+           not_found,
+           DONT_DO_SMI_CHECK);
+
+  STATIC_ASSERT(8 == kDoubleSize);
+  Addu(scratch1,
+       object,
+       Operand(HeapNumber::kValueOffset - kHeapObjectTag));
+  ld(scratch2, MemOperand(scratch1, kPointerSize));
+  ld(scratch1, MemOperand(scratch1, 0));
+  Xor(scratch1, scratch1, Operand(scratch2));
+  And(scratch1, scratch1, Operand(mask));
+
+  // Calculate address of entry in string cache: each entry consists
+  // of two pointer sized fields.
+  sll(scratch1, scratch1, kPointerSizeLog2 + 32);
+  Addu(scratch1, number_string_cache, scratch1);
+
+  Register probe = mask;
+  ld(probe, FieldMemOperand(scratch1, FixedArray::kHeaderSize));
+  JumpIfSmi(probe, not_found);
+  ld(at2, FieldMemOperand(object, HeapNumber::kValueOffset));
+  ld(at, FieldMemOperand(probe, HeapNumber::kValueOffset));
+  Branch(&load_result_from_cache, NULL, eq, at, Operand(at2));
+  Branch(not_found);
+
+  bind(&is_smi);
+  Register scratch = scratch1;
+  sra(scratch, object, 32);   // Shift away the tag.
+  And(scratch, mask, Operand(scratch));
+
+  // Calculate address of entry in string cache: each entry consists
+  // of two pointer sized fields.
+  sll(scratch, scratch, kPointerSizeLog2 + 32);
+  Addu(scratch, number_string_cache, scratch);
+
+  // Check if the entry is the smi we are looking for.
+  ld(probe, FieldMemOperand(scratch, FixedArray::kHeaderSize));
+  Branch(not_found, ne, object, Operand(probe));
+
+  // Get the result from the cache.
+  bind(&load_result_from_cache);
+  ld(result, FieldMemOperand(scratch, FixedArray::kHeaderSize + kPointerSize));
+
+  IncrementCounter(isolate()->counters()->number_to_string_native(),
+                   1,
+                   scratch1,
+                   scratch2);
 }
 
 void MacroAssembler::JumpIfNotSmi(Register value,

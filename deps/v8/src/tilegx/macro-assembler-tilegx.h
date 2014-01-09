@@ -35,6 +35,12 @@
 namespace v8 {
 namespace internal {
 
+// Flags used for LeaveExitFrame function.
+enum LeaveExitFrameMode {
+  EMIT_RETURN = true,
+  NO_EMIT_RETURN = false
+};
+
 // Flags used for AllocateHeapNumber
 enum TaggingMode {
   // Tag the result.
@@ -151,6 +157,8 @@ class MacroAssembler: public Assembler {
                                               Register scratch,
                                               Label* failure);
 
+  void JumpIfNotUniqueName(Register reg, Label* not_unique_name);
+
   // Test that both first and second are sequential ASCII strings.
   // Assume that they are non-smis.
   void JumpIfNonSmisNotBothSequentialAsciiStrings(Register first,
@@ -245,6 +253,21 @@ class MacroAssembler: public Assembler {
   void JumpIfDataObject(Register value,
                         Register scratch,
                         Label* not_data_object);
+
+  // -------------------------------------------------------------------------
+  // String utilities.
+
+  // Generate code to do a lookup in the number string cache. If the number in
+  // the register object is found in the cache the generated code falls through
+  // with the result in the result register. The object and the result register
+  // can be the same. If the number is not found in the cache the code jumps to
+  // the label not_found with only the content of register object unchanged.
+  void LookupNumberStringCache(Register object,
+                               Register result,
+                               Register scratch1,
+                               Register scratch2,
+                               Register scratch3,
+                               Label* not_found);
 
   void JumpIfBothInstanceTypesAreNotSequentialAscii(
       Register first_object_instance_type,
@@ -501,6 +524,8 @@ class MacroAssembler: public Assembler {
   void MultiPushFPU(RegList regs);
   void MultiPushReversedFPU(RegList regs);
 
+  void Push(Register src) { push(src); }
+
   // Pops multiple values from the stack and load them in the
   // registers specified in regs. Pop order is the opposite as in MultiPush.
   void MultiPop(RegList regs);
@@ -508,6 +533,8 @@ class MacroAssembler: public Assembler {
 
   void MultiPopFPU(RegList regs);
   void MultiPopReversedFPU(RegList regs);
+
+  void Pop(Register dst) { pop(dst); }
 
   // Flush the I-cache from asm code. You should use CPU::FlushICache from C.
   // Does not handle errors.
@@ -1007,7 +1034,8 @@ class MacroAssembler: public Assembler {
   // Leave the current exit frame.
   void LeaveExitFrame(bool save_doubles,
                       Register arg_count,
-                      bool do_return = false);
+                      bool restore_context,
+                      bool do_return = NO_EMIT_RETURN);
 
   // Push and pop the registers that can hold pointers, as defined by the
   // RegList constant kSafepointSavedRegisters.

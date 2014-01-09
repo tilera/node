@@ -131,25 +131,24 @@ bool RelocInfo::IsPatchedDebugBreakSlotSequence() {
   return !Assembler::IsNop(current_instr, Assembler::DEBUG_BREAK_NOP);
 }
 
-void RelocInfo::Visit(ObjectVisitor* visitor) {
+void RelocInfo::Visit(Isolate* isolate, ObjectVisitor* visitor) {
   RelocInfo::Mode mode = rmode();
   if (mode == RelocInfo::EMBEDDED_OBJECT) {
     visitor->VisitEmbeddedPointer(this);
   } else if (RelocInfo::IsCodeTarget(mode)) {
     visitor->VisitCodeTarget(this);
-  } else if (mode == RelocInfo::GLOBAL_PROPERTY_CELL) {
-    visitor->VisitGlobalPropertyCell(this);
+  } else if (mode == RelocInfo::CELL) {
+    visitor->VisitCell(this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     visitor->VisitExternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
     visitor->VisitCodeAgeSequence(this);
 #ifdef ENABLE_DEBUGGER_SUPPORT
-  // TODO(isolates): Get a cached isolate below.
   } else if (((RelocInfo::IsJSReturn(mode) &&
               IsPatchedReturnSequence()) ||
              (RelocInfo::IsDebugBreakSlot(mode) &&
              IsPatchedDebugBreakSlotSequence())) &&
-             Isolate::Current()->debug()->has_break_points()) {
+             isolate->debug()->has_break_points()) {
     visitor->VisitDebugTarget(this);
 #endif
   } else if (RelocInfo::IsRuntimeEntry(mode)) {
@@ -164,8 +163,8 @@ void RelocInfo::Visit(Heap* heap) {
     StaticVisitor::VisitEmbeddedPointer(heap, this);
   } else if (RelocInfo::IsCodeTarget(mode)) {
     StaticVisitor::VisitCodeTarget(heap, this);
-  } else if (mode == RelocInfo::GLOBAL_PROPERTY_CELL) {
-    StaticVisitor::VisitGlobalPropertyCell(heap, this);
+  } else if (mode == RelocInfo::CELL) {
+    StaticVisitor::VisitCell(heap, this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     StaticVisitor::VisitExternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
@@ -194,17 +193,17 @@ Handle<Object> RelocInfo::target_object_handle(Assembler* origin) {
       Assembler::target_address_at(pc_)));
 }
 
-Handle<JSGlobalPropertyCell> RelocInfo::target_cell_handle() {
-  ASSERT(rmode_ == RelocInfo::GLOBAL_PROPERTY_CELL);
+Handle<Cell> RelocInfo::target_cell_handle() {
+  ASSERT(rmode_ == RelocInfo::CELL);
   Address address = Memory::Address_at(pc_);
-  return Handle<JSGlobalPropertyCell>(
-      reinterpret_cast<JSGlobalPropertyCell**>(address));
+  return Handle<Cell>(
+      reinterpret_cast<Cell**>(address));
 }
 
-void RelocInfo::set_target_cell(JSGlobalPropertyCell* cell,
+void RelocInfo::set_target_cell(Cell* cell,
                                 WriteBarrierMode mode) {
-  ASSERT(rmode_ == RelocInfo::GLOBAL_PROPERTY_CELL);
-  Address address = cell->address() + JSGlobalPropertyCell::kValueOffset;
+  ASSERT(rmode_ == RelocInfo::CELL);
+  Address address = cell->address() + Cell::kValueOffset;
   Memory::Address_at(pc_) = address;
   if (mode == UPDATE_WRITE_BARRIER && host() != NULL) {
     // TODO(1550) We are passing NULL as a slot because cell can never be on
@@ -214,12 +213,17 @@ void RelocInfo::set_target_cell(JSGlobalPropertyCell* cell,
   }
 }
 
-JSGlobalPropertyCell* RelocInfo::target_cell() {
-  ASSERT(rmode_ == RelocInfo::GLOBAL_PROPERTY_CELL);
-  return JSGlobalPropertyCell::FromValueAddress(Memory::Address_at(pc_));
+Cell* RelocInfo::target_cell() {
+  ASSERT(rmode_ == RelocInfo::CELL);
+  return Cell::FromValueAddress(Memory::Address_at(pc_));
 }
 
 static const int kNoCodeAgeSequenceLength = 11;
+
+Handle<Object> RelocInfo::code_age_stub_handle(Assembler* origin) {
+  UNREACHABLE();  // This should never be reached on TileGX.
+  return Handle<Object>();
+}
 
 Code* RelocInfo::code_age_stub() {
   ASSERT(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);

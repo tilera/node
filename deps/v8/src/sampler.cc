@@ -376,9 +376,9 @@ void SignalHandler::HandleProfilerSignal(int signal, siginfo_t* info,
   state.sp = reinterpret_cast<Address>(mcontext.gregs[29]);
   state.fp = reinterpret_cast<Address>(mcontext.gregs[30]);
 #elif V8_HOST_ARCH_TILEGX
-  sample->pc = reinterpret_cast<Address>(mcontext.pc);
-  sample->sp = reinterpret_cast<Address>(mcontext.sp);
-  sample->fp = reinterpret_cast<Address>(mcontext.gregs[52]);
+  state.pc = reinterpret_cast<Address>(mcontext.pc);
+  state.sp = reinterpret_cast<Address>(mcontext.sp);
+  state.fp = reinterpret_cast<Address>(mcontext.gregs[52]);
 #endif  // V8_HOST_ARCH_*
 #elif V8_OS_MACOSX
 #if V8_HOST_ARCH_X64
