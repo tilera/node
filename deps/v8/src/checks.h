@@ -45,10 +45,11 @@ extern "C" void V8_Fatal(const char* file, int line, const char* format, ...);
   V8_Fatal(__FILE__, __LINE__, "unreachable code")
 #else
 #define FATAL(msg)                              \
-  V8_Fatal("", 0, "%s", (msg))
+  V8_Fatal(__FILE__, __LINE__, "%s", (msg))
 #define UNIMPLEMENTED()                         \
-  V8_Fatal("", 0, "unimplemented code")
-#define UNREACHABLE() ((void) 0)
+  V8_Fatal(__FILE__, __LINE__, "unimplemented code")
+#define UNREACHABLE()                           \
+  V8_Fatal(__FILE__, __LINE__, "unreachable code")
 #endif
 
 

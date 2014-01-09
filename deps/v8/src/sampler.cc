@@ -124,6 +124,27 @@ typedef struct ucontext {
   // Other fields are not used by V8, don't define them here.
 } ucontext_t;
 
+#elif defined(__tilegx__)
+// FIXME:
+// TILEGX version of sigcontext, for Android bionic.
+typedef struct {
+  uint32_t regmask;
+  uint32_t status;
+  uint64_t pc;
+  uint64_t gregs[64];
+  uint32_t acx;
+  uint32_t fpc_csr;
+  uint32_t fpc_eir;
+} mcontext_t;
+
+typedef struct ucontext {
+  uint32_t uc_flags;
+  struct ucontext* uc_link;
+  stack_t uc_stack;
+  mcontext_t uc_mcontext;
+  // Other fields are not used by V8, don't define them here.
+} ucontext_t;
+
 #elif defined(__i386__)
 // x86 version for Android.
 typedef struct {
@@ -354,6 +375,10 @@ void SignalHandler::HandleProfilerSignal(int signal, siginfo_t* info,
   state.pc = reinterpret_cast<Address>(mcontext.pc);
   state.sp = reinterpret_cast<Address>(mcontext.gregs[29]);
   state.fp = reinterpret_cast<Address>(mcontext.gregs[30]);
+#elif V8_HOST_ARCH_TILEGX
+  sample->pc = reinterpret_cast<Address>(mcontext.pc);
+  sample->sp = reinterpret_cast<Address>(mcontext.sp);
+  sample->fp = reinterpret_cast<Address>(mcontext.gregs[52]);
 #endif  // V8_HOST_ARCH_*
 #elif V8_OS_MACOSX
 #if V8_HOST_ARCH_X64

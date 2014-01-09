@@ -71,6 +71,8 @@
 #include "arm/lithium-codegen-arm.h"
 #elif V8_TARGET_ARCH_MIPS
 #include "mips/lithium-codegen-mips.h"
+#elif V8_TARGET_ARCH_TILEGX
+#include "tilegx/lithium-codegen-tilegx.h"
 #else
 #error Unsupported target architecture.
 #endif

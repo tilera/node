@@ -86,6 +86,13 @@ const int kInvalidProtoDepth = -1;
 #include "mips/assembler-mips-inl.h"
 #include "code.h"  // must be after assembler_*.h
 #include "mips/macro-assembler-mips.h"
+#elif V8_TARGET_ARCH_TILEGX
+#include "tilegx/constants-tilegx.h"
+#include "assembler.h"
+#include "tilegx/assembler-tilegx.h"
+#include "tilegx/assembler-tilegx-inl.h"
+#include "code.h"  // must be after assembler_*.h
+#include "tilegx/macro-assembler-tilegx.h"
 #else
 #error Unsupported target architecture.
 #endif

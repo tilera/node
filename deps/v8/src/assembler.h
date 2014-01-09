@@ -652,6 +652,10 @@ class ExternalReference BASE_EMBEDDED {
     BUILTIN_FP_CALL,
 
     // Builtin call that returns floating point.
+    // double f(float).
+    BUILTIN_SFP_CALL,
+
+    // Builtin call that returns floating point.
     // double f(double, int).
     BUILTIN_FP_INT_CALL,
 
@@ -816,6 +820,10 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference address_of_canonical_non_hole_nan();
   static ExternalReference address_of_the_hole_nan();
   static ExternalReference address_of_uint32_bias();
+
+  // type conversion emulation functions.
+  static ExternalReference cvt_float_to_double(Isolate* isolate);
+  static ExternalReference cvt_double_to_float(Isolate* isolate);
 
   static ExternalReference math_sin_double_function(Isolate* isolate);
   static ExternalReference math_cos_double_function(Isolate* isolate);
@@ -1019,6 +1027,10 @@ inline bool is_intn(int x, int n)  {
   return -(1 << (n-1)) <= x && x < (1 << (n-1));
 }
 
+inline bool is_lintn(long x, long n)  {
+  return -(1L << (n-1)) <= x && x < (1L << (n-1));
+}
+
 inline bool is_int8(int x)  { return is_intn(x, 8); }
 inline bool is_int16(int x)  { return is_intn(x, 16); }
 inline bool is_int18(int x)  { return is_intn(x, 18); }
@@ -1041,7 +1053,7 @@ inline bool is_uint24(int x)  { return is_uintn(x, 24); }
 inline bool is_uint26(int x)  { return is_uintn(x, 26); }
 inline bool is_uint28(int x)  { return is_uintn(x, 28); }
 
-inline int NumberOfBitsSet(uint32_t x) {
+inline int NumberOfBitsSet(uint64_t x) {
   unsigned int num_bits_set;
   for (num_bits_set = 0; x; x >>= 1) {
     num_bits_set += x & 1;

@@ -1583,7 +1583,7 @@ JSCallerSavedCodeData caller_saved_code_data;
 void SetUpJSCallerSavedCodeData() {
   int i = 0;
   for (int r = 0; r < kNumRegs; r++)
-    if ((kJSCallerSaved & (1 << r)) != 0)
+    if ((kJSCallerSaved & (1L << r)) != 0)
       caller_saved_code_data.reg_code[i++] = r;
 
   ASSERT(i == kNumJSCallerSaved);

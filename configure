@@ -31,7 +31,7 @@ parser.add_option('--debug',
 parser.add_option('--dest-cpu',
     action='store',
     dest='dest_cpu',
-    help='CPU architecture to build for. Valid values are: arm, ia32, x64')
+    help='CPU architecture to build for. Valid values are: arm, ia32, x64, tilegx')
 
 parser.add_option('--dest-os',
     action='store',
@@ -382,6 +382,7 @@ def host_arch_cc():
     '__i386__'    : 'ia32',
     '__arm__'     : 'arm',
     '__mips__'    : 'mips',
+    '__tilegx__'  : 'tilegx',
   }
 
   rtn = 'ia32' # default
@@ -404,6 +405,7 @@ def host_arch_win():
     'x86'    : 'ia32',
     'arm'    : 'arm',
     'mips'   : 'mips',
+    'tilegx' : 'tilegx',
   }
 
   return matchup.get(arch, 'ia32')

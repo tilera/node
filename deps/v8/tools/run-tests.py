@@ -48,7 +48,7 @@ from testrunner.objects import context
 
 ARCH_GUESS = utils.DefaultArch()
 DEFAULT_TESTS = ["mjsunit", "cctest", "message", "preparser"]
-TIMEOUT_DEFAULT = 60
+TIMEOUT_DEFAULT = 720
 TIMEOUT_SCALEFACTOR = {"debug"   : 4,
                        "release" : 1 }
 
@@ -70,12 +70,14 @@ SUPPORTED_ARCHS = ["android_arm",
                    "mipsel",
                    "nacl_ia32",
                    "nacl_x64",
+                   "tilegx",
                    "x64"]
 # Double the timeout for these:
 SLOW_ARCHS = ["android_arm",
               "android_ia32",
               "arm",
               "mipsel",
+              "tilegx",
               "nacl_ia32",
               "nacl_x64"]
 

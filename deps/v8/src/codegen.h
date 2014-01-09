@@ -77,6 +77,8 @@ enum TypeofState { INSIDE_TYPEOF, NOT_INSIDE_TYPEOF };
 #include "arm/codegen-arm.h"
 #elif V8_TARGET_ARCH_MIPS
 #include "mips/codegen-mips.h"
+#elif V8_TARGET_ARCH_TILEGX
+#include "tilegx/codegen-tilegx.h"
 #else
 #error Unsupported target architecture.
 #endif

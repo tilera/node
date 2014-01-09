@@ -111,6 +111,20 @@ void generate(MacroAssembler* masm, i::Vector<const uint8_t> string) {
   __ pop(kRootRegister);
   __ jr(ra);
   __ nop();
+#elif V8_TARGET_ARCH_TILEGX
+  __ push(kRootRegister);
+  __ InitializeRootRegister();
+
+  __ li(v0, Operand(0L));
+  __ li(t1, Operand(string.at(0)));
+  StringHelper::GenerateHashInit(masm, v0, t1);
+  for (int i = 1; i < string.length(); i++) {
+    __ li(t1, Operand(string.at(i)));
+    StringHelper::GenerateHashAddCharacter(masm, v0, t1);
+  }
+  StringHelper::GenerateHashGetHash(masm, v0);
+  __ pop(kRootRegister);
+  __ jr(ra);
 #endif
 }
 
@@ -146,6 +160,13 @@ void generate(MacroAssembler* masm, uint32_t key) {
   __ pop(kRootRegister);
   __ jr(ra);
   __ nop();
+#elif V8_TARGET_ARCH_TILEGX
+  __ push(kRootRegister);
+  __ InitializeRootRegister();
+  __ li(v0, Operand(key));
+  __ GetNumberHash(v0, t1);
+  __ pop(kRootRegister);
+  __ jr(ra);
 #endif
 }
 

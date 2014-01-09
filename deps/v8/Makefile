@@ -214,7 +214,7 @@ endif
 
 # Architectures and modes to be compiled. Consider these to be internal
 # variables, don't override them (use the targets instead).
-ARCHES = ia32 x64 arm mipsel
+ARCHES = ia32 x64 arm mipsel tilegx
 DEFAULT_ARCHES = ia32 x64 arm
 MODES = release debug
 ANDROID_ARCHES = android_ia32 android_arm android_mipsel

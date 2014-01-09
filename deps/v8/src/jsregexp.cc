@@ -53,6 +53,8 @@
 #include "arm/regexp-macro-assembler-arm.h"
 #elif V8_TARGET_ARCH_MIPS
 #include "mips/regexp-macro-assembler-mips.h"
+#elif V8_TARGET_ARCH_TILEGX
+#include "tilegx/regexp-macro-assembler-tilegx.h"
 #else
 #error Unsupported target architecture.
 #endif
@@ -6086,6 +6088,9 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
 #elif V8_TARGET_ARCH_MIPS
   RegExpMacroAssemblerMIPS macro_assembler(mode, (data->capture_count + 1) * 2,
                                            zone);
+#elif V8_TARGET_ARCH_TILEGX
+  RegExpMacroAssemblerTILEGX macro_assembler(mode, (data->capture_count + 1) * 2,
+                                             zone);
 #endif
 
 #else  // V8_INTERPRETED_REGEXP

@@ -149,6 +149,8 @@ int OS::ActivationFrameAlignment() {
   return 8;
 #elif V8_TARGET_ARCH_MIPS
   return 8;
+#elif V8_TARGET_ARCH_TILEGX
+  return 8;
 #else
   // Otherwise we just assume 16 byte alignment, i.e.:
   // - With gcc 4.4 the tree vectorization optimizer can generate code
@@ -214,7 +216,7 @@ void* OS::GetRandomMmapAddr() {
   if (isolate != NULL) {
     uintptr_t raw_addr;
     isolate->random_number_generator()->NextBytes(&raw_addr, sizeof(raw_addr));
-#if V8_TARGET_ARCH_X64
+#if defined(V8_TARGET_ARCH_X64) || defined(V8_TARGET_ARCH_TILEGX)
     // Currently available CPUs have 48 bits of virtual addressing.  Truncate
     // the hint address to 46 bits to give the kernel a fighting chance of
     // fulfilling our placement request.
@@ -271,6 +273,8 @@ void OS::DebugBreak() {
   asm("bkpt 0");
 #elif V8_HOST_ARCH_MIPS
   asm("break");
+#elif V8_HOST_ARCH_TILEGX
+  asm("bpt");
 #elif V8_HOST_ARCH_IA32
 #if defined(__native_client__)
   asm("hlt");

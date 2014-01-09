@@ -135,6 +135,8 @@ class FullCodeGenerator: public AstVisitor {
   static const int kCodeSizeMultiplier = 142;
 #elif V8_TARGET_ARCH_MIPS
   static const int kCodeSizeMultiplier = 142;
+#elif V8_TARGET_ARCH_TILEGX
+  static const int kCodeSizeMultiplier = 142;
 #else
 #error Unsupported target architecture.
 #endif
@@ -333,7 +335,7 @@ class FullCodeGenerator: public AstVisitor {
 
   // Helper function to split control flow and avoid a branch to the
   // fall-through label if it is set up.
-#if V8_TARGET_ARCH_MIPS
+#if defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_TILEGX)
   void Split(Condition cc,
              Register lhs,
              const Operand&  rhs,

@@ -35,7 +35,7 @@
 namespace v8 {
 namespace internal {
 
-typedef uint32_t RegList;
+typedef uint64_t RegList;
 
 // Get the number of registers in a given register list.
 int NumRegs(RegList list);
