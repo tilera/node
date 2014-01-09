@@ -35,7 +35,7 @@
 
 #include "v8.h"
 
-#if defined(V8_TARGET_ARCH_TILEGX)
+#if V8_TARGET_ARCH_TILEGX
 
 #include "tilegx/assembler-tilegx-inl.h"
 #include "serialize.h"
@@ -48,6 +48,7 @@ bool CpuFeatures::initialized_ = false;
 #endif
 unsigned CpuFeatures::supported_ = 0;
 unsigned CpuFeatures::found_by_runtime_probing_only_ = 0;
+unsigned CpuFeatures::cross_compile_ = 0;
 
 
 ExternalReference ExternalReference::cpu_features() {
@@ -1311,15 +1312,12 @@ MemOperand::MemOperand(Register rm, int64_t offset) : Operand(rm) {
 }
 
 Operand::Operand(Handle<Object> handle) {
-#ifdef DEBUG
-  Isolate* isolate = Isolate::Current();
-#endif
-  ALLOW_HANDLE_DEREF(isolate, "using and embedding raw address");
+  AllowDeferredHandleDereference using_raw_address;
   rm_ = no_reg;
   // Verify all Objects referred by code are NOT in new space.
   Object* obj = *handle;
-  ASSERT(!isolate->heap()->InNewSpace(obj));
   if (obj->IsHeapObject()) {
+    ASSERT(!HeapObject::cast(obj)->GetHeap()->InNewSpace(obj));
     imm64_ = reinterpret_cast<intptr_t>(handle.location());
     rmode_ = RelocInfo::EMBEDDED_OBJECT;
   } else {
@@ -1346,6 +1344,13 @@ void RelocInfo::PatchCode(byte* instructions, int instruction_count) {
 
   // Indicate that code has changed.
   CPU::FlushICache(pc_, instruction_count * Assembler::kInstrSize);
+}
+
+// Patch the code at the current PC with a call to the target address.
+// Additional guard instructions can be added if required.
+void RelocInfo::PatchCodeWithCall(Address target, int guard_bytes) {
+  // Patch the code at the current address with a call to the target.
+  UNIMPLEMENTED_TILEGX();
 }
 
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
@@ -1751,7 +1756,7 @@ void Assembler::break_(uint32_t code, bool break_as_stop) {
 void Assembler::stop(const char* msg, uint32_t code) {
   ASSERT(code > kMaxWatchpointCode);
   ASSERT(code <= kMaxStopCode);
-#if defined(V8_HOST_ARCH_TILEGX)
+#if V8_HOST_ARCH_TILEGX
   break_(0x54321);
 #else  // V8_HOST_ARCH_TILEGX
 #if 0 // No Simulator Support for TileGX

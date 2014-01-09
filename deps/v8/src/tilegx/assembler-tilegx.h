@@ -694,6 +694,11 @@ class Operand BASE_EMBEDDED {
   // Return true if this is a register operand.
   INLINE(bool is_reg() const);
 
+  inline int32_t immediate() const {
+    ASSERT(!is_reg());
+    return imm64_;
+  }
+
   Register rm() const { return rm_; }
 
  private:
@@ -818,6 +823,7 @@ class Assembler : public AssemblerBase {
     FIRST_IC_MARKER = PROPERTY_ACCESS_INLINED,
     // Code aging
     CODE_AGE_MARKER_NOP = 6
+    CODE_AGE_SEQUENCE_NOP
   };
 
   // Insert the smallest number of nop instructions
@@ -1301,13 +1307,12 @@ class CpuFeatures : public AllStatic {
   // Check whether a feature is supported by the target CPU.
   static bool IsSupported(CpuFeature f) {
     ASSERT(initialized_);
-    return (supported_ & (1u << f)) != 0;
+    return Check(f, supported_);
   }
 
   static bool IsFoundByRuntimeProbingOnly(CpuFeature f) {
     ASSERT(initialized_);
-    return (found_by_runtime_probing_only_ &
-            (static_cast<uint64_t>(1) << f)) != 0;
+    return Check(f, found_by_runtime_probing_only_);
   }
 
   static bool IsSafeForSnapshot(CpuFeature f) {
