@@ -88,7 +88,6 @@ void FastCloneShallowObjectStub::InitializeInterfaceDescriptor(
   static Register registers[] = { a3, a2, a1, a0 };
   descriptor->register_param_count_ = 4;
   descriptor->register_params_ = registers;
-  descriptor->stack_parameter_count_ = NULL;
   descriptor->deoptimization_handler_ =
       Runtime::FunctionForId(Runtime::kCreateObjectLiteral)->entry;
 }
@@ -181,7 +180,7 @@ static void InitializeArrayConstructorDescriptor(
   descriptor->register_param_count_ = 2;
   if (constant_stack_parameter_count != 0) {
     // stack param count needs (constructor pointer, and single argument)
-    descriptor->stack_parameter_count_ = &a0;
+    descriptor->stack_parameter_count_ = a0;
   }
   descriptor->hint_stack_parameter_count_ = constant_stack_parameter_count;
   descriptor->register_params_ = registers;
@@ -380,7 +379,7 @@ void FastNewBlockContextStub::Generate(MacroAssembler* masm) {
   Label after_sentinel;
   __ JumpIfNotSmi(a3, &after_sentinel);
   if (FLAG_debug_code) {
-    __ Assert(eq, kExpected0AsASmiSentinel, a3, Operand(zero_reg));
+    __ Assert(eq, kExpected0AsASmiSentinel, a3, Operand(zero));
   }
   __ ld(a3, GlobalObjectOperand());
   __ ld(a3, FieldMemOperand(a3, GlobalObject::kNativeContextOffset));
@@ -503,10 +502,6 @@ void FloatingPointHelper::LoadNumber(MacroAssembler* masm,
                                      Register scratch2,
                                      Register scratch3,
                                      Label* not_number) {
-  __ AssertRootValue(heap_number_map,
-                     Heap::kHeapNumberMapRootIndex,
-                     "HeapNumberMap register clobbered.");
-
   Label is_smi, done;
 
   // Smi-check
@@ -544,9 +539,6 @@ void FloatingPointHelper::ConvertNumberToInt32(MacroAssembler* masm,
                                                Register scratch3,
                                                Register scratch4,
                                                Label* not_number) {
-  __ AssertRootValue(heap_number_map,
-                     Heap::kHeapNumberMapRootIndex,
-                     "HeapNumberMap register clobbered.");
   Label done;
   Label not_in_int32_range;
 
@@ -645,9 +637,6 @@ void FloatingPointHelper::LoadNumberAsInt32Double(MacroAssembler* masm,
   __ Branch(&done);
 
   __ bind(&obj_is_not_smi);
-  __ AssertRootValue(heap_number_map,
-                     Heap::kHeapNumberMapRootIndex,
-                     "HeapNumberMap register clobbered.");
   __ JumpIfNotHeapNumber(object, heap_number_map, scratch1, not_int32);
 
   // Load the double value in the destination registers.
@@ -780,10 +769,6 @@ void FloatingPointHelper::LoadNumberAsInt32(MacroAssembler* masm,
   Label done, maybe_undefined;
 
   __ UntagAndJumpIfSmi(dst, object, &done);
-
-  __ AssertRootValue(heap_number_map,
-                     Heap::kHeapNumberMapRootIndex,
-                     "HeapNumberMap register clobbered.");
 
   __ JumpIfNotHeapNumber(object, heap_number_map, scratch1, &maybe_undefined);
 
@@ -1468,8 +1453,8 @@ bool CEntryStub::NeedsImmovableCode() {
 }
 
 
-bool CEntryStub::IsPregenerated() {
-  return (!save_doubles_ || ISOLATE->fp_stubs_generated()) &&
+bool CEntryStub::IsPregenerated(Isolate* isolate) {
+  return (!save_doubles_ || isolate->fp_stubs_generated()) &&
           result_size_ == 1;
 }
 
@@ -2675,12 +2660,12 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
   if (FLAG_debug_code) {
     __ And(t0, regexp_data, Operand(kSmiTagMask));
     __ Check(nz,
-             "Unexpected type for RegExp data, FixedArray expected",
+             kUnexpectedTypeForRegExpDataFixedArrayExpected,
              t0,
              Operand(zero));
     __ GetObjectType(regexp_data, a0, a0);
     __ Check(eq,
-             "Unexpected type for RegExp data, FixedArray expected",
+             kUnexpectedTypeForRegExpDataFixedArrayExpected,
              a0,
              Operand(FIXED_ARRAY_TYPE));
   }
@@ -2887,7 +2872,7 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
   DirectCEntryStub stub;
   stub.GenerateCall(masm, t9);
 
-  __ LeaveExitFrame(false, no_reg);
+  __ LeaveExitFrame(false, no_reg, true);
 
   // v0: result
   // subject: subject string (callee saved)
@@ -3037,7 +3022,7 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
     // Sequential strings have already been ruled out.
     __ And(at, a0, Operand(kIsIndirectStringMask));
     __ Assert(eq,
-              "external string expected, but not found",
+              kExternalStringExpectedButNotFound,
               at,
               Operand(zero));
   }
@@ -3266,11 +3251,7 @@ void CallFunctionStub::Generate(MacroAssembler* masm) {
   __ Branch(&slow, ne, a3, Operand(JS_FUNCTION_TYPE));
 
   if (RecordCallTarget()) {
-    if (FLAG_optimize_constructed_arrays) {
       GenerateRecordCallTarget(masm);
-    } else {
-      GenerateRecordCallTargetNoArray(masm);
-    }
   }
 
   // Fast-case: Invoke the function now.
@@ -3573,7 +3554,7 @@ void StringHelper::GenerateCopyCharactersLong(MacroAssembler* masm,
     // that it is.
     __ And(scratch4, dest, Operand(kPointerAlignmentMask));
     __ Check(eq,
-             "Destination of copy not aligned.",
+             kDestinationOfCopyNotAligned,
              scratch4,
              Operand(zero));
   }
@@ -3775,7 +3756,7 @@ void StringHelper::GenerateTwoCharacterStringTableProbe(MacroAssembler* masm,
     // Must be the hole (deleted entry).
     if (FLAG_debug_code) {
       __ LoadRoot(scratch, Heap::kTheHoleValueRootIndex);
-      __ Assert(eq, "oddball in string table is not undefined or the hole",
+      __ Assert(eq, kOddballInStringTableIsNotUndefinedOrTheHole,
           scratch, Operand(candidate));
     }
     __ jmp(&next_probe[i]);
@@ -4675,7 +4656,7 @@ void ICCompareStub::GenerateInternalizedStrings(MacroAssembler* masm) {
   STATIC_ASSERT(kInternalizedTag == 0 && kStringTag == 0);
   __ Or(tmp1, tmp1, Operand(tmp2));
   __ And(at, tmp1, Operand(kIsNotStringMask | kIsNotInternalizedMask));
-  __ Branch(&miss, ne, at, Operand(zero_reg));
+  __ Branch(&miss, ne, at, Operand(zero));
 
   // Make sure a0 is non-zero. At this point input operands are
   // guaranteed to be non-zero.
@@ -5710,6 +5691,9 @@ static void CreateArrayDispatchOneArgument(MacroAssembler* masm,
 
 template<class T>
 static void ArrayConstructorStubAheadOfTimeHelper(Isolate* isolate) {
+  ElementsKind initial_kind = GetInitialFastElementsKind();
+  ElementsKind initial_holey_kind = GetHoleyElementsKind(initial_kind);
+
   int to_index = GetSequenceIndexFromFastElementsKind(
       TERMINAL_FAST_ELEMENTS_KIND);
   for (int i = 0; i <= to_index; ++i) {

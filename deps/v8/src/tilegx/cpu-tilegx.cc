@@ -36,7 +36,7 @@
 
 #include "v8.h"
 
-#if defined(V8_TARGET_ARCH_TILEGX)
+#if V8_TARGET_ARCH_TILEGX
 
 #include "cpu.h"
 #include "macro-assembler.h"
@@ -78,13 +78,6 @@ void CPU::FlushICache(void* start, size_t size) {
   // around whether or not to generate the code when building snapshots.
   Simulator::FlushICache(Isolate::Current()->simulator_i_cache(), start, size);
 #endif  // USE_SIMULATOR.
-}
-
-
-void CPU::DebugBreak() {
-#ifdef __tilegx__
-  asm volatile("bpt");
-#endif  // #ifdef __tilegx__
 }
 
 

@@ -63,6 +63,13 @@ enum RememberedSetAction { EMIT_REMEMBERED_SET, OMIT_REMEMBERED_SET };
 enum SmiCheck { INLINE_SMI_CHECK, OMIT_SMI_CHECK };
 enum RAStatus { kRAHasNotBeenSaved, kRAHasBeenSaved };
 
+Register GetRegisterThatIsNotOneOf(Register reg1,
+                                   Register reg2 = no_reg,
+                                   Register reg3 = no_reg,
+                                   Register reg4 = no_reg,
+                                   Register reg5 = no_reg,
+                                   Register reg6 = no_reg);
+
 bool AreAliased(Register r1, Register r2, Register r3, Register r4);
 
 inline MemOperand ContextOperand(Register context, int index) {
@@ -100,6 +107,9 @@ class MacroAssembler: public Assembler {
     kReturnAtEnd,
     kFallThroughAtEnd
   };
+
+  // Generates function and stub prologue code.
+  void Prologue(PrologueFrameMode frame_mode);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type);
@@ -231,10 +241,27 @@ class MacroAssembler: public Assembler {
 
   void CheckEnumCache(Register null_value, Label* call_runtime);
 
-  void TestJSArrayForAllocationSiteInfo(Register receiver_reg,
-                                        Register scratch_reg,
-                                        Condition cond,
-                                        Label* allocation_info_present);
+  // AllocationMemento support. Arrays may have an associated
+  // AllocationMemento object that can be checked for in order to pretransition
+  // to another type.
+  // On entry, receiver_reg should point to the array object.
+  // scratch_reg gets clobbered.
+  // If allocation info is present, jump to allocation_memento_present.
+  void TestJSArrayForAllocationMemento(
+      Register receiver_reg,
+      Register scratch_reg,
+      Label* no_memento_found,
+      Condition cond = al,
+      Label* allocation_memento_present = NULL);
+
+  void JumpIfJSArrayHasAllocationMemento(Register receiver_reg,
+                                         Register scratch_reg,
+                                         Label* memento_found) {
+    Label no_memento_found;
+    TestJSArrayForAllocationMemento(receiver_reg, scratch_reg,
+                                    &no_memento_found, eq, memento_found);
+    bind(&no_memento_found);
+  }
 
   // Arguments 1-4 are placed in registers a0 thru a3 respectively.
   // Arguments 5..n are stored to stack using following:
@@ -305,15 +332,15 @@ class MacroAssembler: public Assembler {
 
   // Calls Abort(msg) if the condition cc is not satisfied.
   // Use --debug_code to enable.
-  void Assert(Condition cc, const char* msg, Register rs, Operand rt);
+  void Assert(Condition cc, BailoutReason reason, Register rs, Operand rt);
   void AssertRegisterIsRoot(Register reg, Heap::RootListIndex index);
   void AssertFastElements(Register elements);
 
   // Like Assert(), but always enabled.
-  void Check(Condition cc, const char* msg, Register rs, Operand rt);
+  void Check(Condition cc, BailoutReason reason, Register rs, Operand rt);
 
   // Print a message to stdout and abort execution.
-  void Abort(const char* msg);
+  void Abort(BailoutReason reason);
 
   // Abort execution if argument is a smi, enabled via --debug-code.
   void AssertNotSmi(Register object);
@@ -325,11 +352,6 @@ class MacroAssembler: public Assembler {
   // Abort execution if argument is not a name, enabled via --debug-code.
   void AssertName(Register object);
 
-  // Abort execution if argument is not the root value with the given index,
-  // enabled via --debug-code.
-  void AssertRootValue(Register src,
-                       Heap::RootListIndex root_value_index,
-                       const char* message);
 
   void JumpIfNotHeapNumber(Register object,
                            Register heap_number_map,
@@ -878,9 +900,12 @@ class MacroAssembler: public Assembler {
   // - space to be unwound on exit (includes the call JS arguments space and
   // the additional space allocated for the fast call).
   void CallApiFunctionAndReturn(ExternalReference function,
+                                Address function_address,
+                                ExternalReference thunk_ref,
+                                Register thunk_last_arg,
                                 int stack_space,
-                                bool returns_handle,
-                                int return_value_offset_from_fp);
+                                MemOperand return_value_operand,
+                                MemOperand* context_restore_operand);
 
   // Jump to the builtin routine.
   void JumpToExternalReference(const ExternalReference& builtin);
@@ -1016,7 +1041,14 @@ class MacroAssembler: public Assembler {
 
   void LoadHeapObject(Register dst, Handle<HeapObject> object);
 
-  void LoadObject(Register result, Handle<Object> object) { UNREACHABLE(); }
+  void LoadObject(Register result, Handle<Object> object) {
+    AllowDeferredHandleDereference heap_object_check;
+    if (object->IsHeapObject()) {
+      LoadHeapObject(result, Handle<HeapObject>::cast(object));
+    } else {
+      li(result, object);
+    }
+  }
 
   // Get the actual activation frame alignment for target environment.
   static int ActivationFrameAlignment();

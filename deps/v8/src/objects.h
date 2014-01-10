@@ -1191,6 +1191,8 @@ class MaybeObject BASE_EMBEDDED {
     "LiveEdit frame dropping is not supported on arm")                        \
   V(kLiveEditFrameDroppingIsNotSupportedOnMips,                               \
     "LiveEdit frame dropping is not supported on mips")                       \
+  V(kLiveEditFrameDroppingIsNotSupportedOnTileGX,                             \
+    "LiveEdit frame dropping is not supported on TILE-Gx")                    \
   V(kLiveEdit, "LiveEdit")                                                    \
   V(kLookupVariableInCountOperation,                                          \
     "lookup variable in count operation")                                     \

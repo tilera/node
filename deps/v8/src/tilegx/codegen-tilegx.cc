@@ -96,7 +96,7 @@ void StubRuntimeCallHelper::AfterCall(MacroAssembler* masm) const {
 
 void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
     MacroAssembler* masm, AllocationSiteMode mode,
-    Label* allocation_site_info_found) {
+    Label* allocation_memento_found) {
   // ----------- S t a t e -------------
   //  -- a0    : value
   //  -- a1    : key
@@ -107,8 +107,7 @@ void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
   // -----------------------------------
   if (mode == TRACK_ALLOCATION_SITE) {
     ASSERT(allocation_site_info_found != NULL);
-    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq,
-                                           allocation_site_info_found);
+    __ JumpIfJSArrayHasAllocationMemento(a2, t0, allocation_memento_found);
   }
 
   // Set transitioned map.
@@ -139,7 +138,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   Register scratch = t6;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq, fail);
+    __ JumpIfJSArrayHasAllocationMemento(a2, t0, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -157,7 +156,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   __ sra(scratch, t1, 32);
   __ sll(scratch, scratch, 3);
   __ Addu(scratch, scratch, FixedDoubleArray::kHeaderSize);
-  __ Allocate(scratch, t2, t3, t5, &gc_required, NO_ALLOCATION_FLAGS);
+  __ Allocate(scratch, t2, t3, t5, &gc_required, DOUBLE_ALIGNMENT);
   // t2: destination FixedDoubleArray, not tagged as heap object
 
   // Set destination FixedDoubleArray's length and map.
@@ -241,7 +240,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
     __ SmiTag(t5);
     __ Or(t5, t5, Operand(1));
     __ LoadRoot(at, Heap::kTheHoleValueRootIndex);
-    __ Assert(eq, "object found in smi-only array", at, Operand(t5));
+    __ Assert(eq, kObjectFoundInSmiOnlyArray, at, Operand(t5));
   }
   __ st(t0, MemOperand(t3));
   //__ st(t1, MemOperand(t3, kIntSize));  // exponent
@@ -268,7 +267,7 @@ void ElementsTransitionGenerator::GenerateDoubleToObject(
   Label entry, loop, convert_hole, gc_required, only_change_map;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq, fail);
+    __ JumpIfJSArrayHasAllocationMemento(a2, t0, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -441,7 +440,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
     // Assert that we do not have a cons or slice (indirect strings) here.
     // Sequential strings have already been ruled out.
     __ And(at, result, Operand(kIsIndirectStringMask));
-    __ Assert(eq, "external string expected, but not found",
+    __ Assert(eq, kExternalStringExpectedButNotFound,
         at, Operand(zero));
   }
   // Rule out short external strings.
@@ -520,7 +519,7 @@ bool Code::IsYoungSequence(byte* sequence) {
 void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
                                MarkingParity* parity) {
   if (IsYoungSequence(sequence)) {
-    *age = kNoAge;
+    *age = kNoAgeCodeAge;
     *parity = NO_MARKING_PARITY;
   } else {
     Address target_address = Memory::Address_at(
@@ -531,25 +530,21 @@ void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
 }
 
 
-void Code::PatchPlatformCodeAge(byte* sequence,
+void Code::PatchPlatformCodeAge(Isolate* isolate,
+                                byte* sequence,
                                 Code::Age age,
                                 MarkingParity parity) {
+
   uint32_t young_length;
   byte* young_sequence = GetNoCodeAgeSequence(&young_length);
-  if (age == kNoAge) {
+  if (age == kNoAgeCodeAge) {
     CopyBytes(sequence, young_sequence, young_length);
     CPU::FlushICache(sequence, young_length);
   } else {
-    Code* stub = GetCodeAgeStub(age, parity);
+    Code* stub = GetCodeAgeStub(isolate, age, parity);
     CodePatcher patcher(sequence, young_length / Assembler::kInstrSize);
     // Mark this code sequence for FindPlatformCodeAgeSequence()
     patcher.masm()->nop(Assembler::CODE_AGE_MARKER_NOP);
-
-    patcher.masm()->nop();
-    patcher.masm()->nop();
-    patcher.masm()->nop();
-    patcher.masm()->nop();
-
     // Save the function's original return address
     // (it will be clobbered by Call(t9))
     patcher.masm()->move(at, ra);

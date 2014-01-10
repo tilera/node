@@ -41,7 +41,7 @@ namespace internal {
 
 class CodeGenerator: public AstVisitor {
  public:
-  CodeGenerator(Isolate* isolate) {
+  explicit CodeGenerator(Isolate* isolate) {
     InitializeAstVisitor(isolate);
   }
 
