@@ -691,15 +691,17 @@ class LMathFloorOfDiv V8_FINAL : public LTemplateInstruction<1, 2, 1> {
 };
 
 
-class LMulI V8_FINAL : public LTemplateInstruction<1, 2, 0> {
+class LMulI V8_FINAL : public LTemplateInstruction<1, 2, 1> {
  public:
-  LMulI(LOperand* left, LOperand* right) {
+  LMulI(LOperand* left, LOperand* right, LOperand *temp) {
     inputs_[0] = left;
     inputs_[1] = right;
+    temps_[0] = temp;
   }
 
   LOperand* left() { return inputs_[0]; }
   LOperand* right() { return inputs_[1]; }
+  LOperand* temp() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(MulI, "mul-i")
   DECLARE_HYDROGEN_ACCESSOR(Mul)
@@ -2147,19 +2149,22 @@ class LDoubleToI V8_FINAL : public LTemplateInstruction<1, 1, 0> {
 
 
 // Truncating conversion from a tagged value to an int32.
-class LTaggedToI V8_FINAL : public LTemplateInstruction<1, 1, 2> {
+class LTaggedToI V8_FINAL : public LTemplateInstruction<1, 1, 3> {
  public:
   LTaggedToI(LOperand* value,
              LOperand* temp,
+             LOperand* temp1,
              LOperand* temp2) {
     inputs_[0] = value;
     temps_[0] = temp;
-    temps_[1] = temp2;
+    temps_[1] = temp1;
+    temps_[2] = temp2;
   }
 
   LOperand* value() { return inputs_[0]; }
   LOperand* temp() { return temps_[0]; }
   LOperand* temp2() { return temps_[1]; }
+  LOperand* temp3() { return temps_[2]; }
 
   DECLARE_CONCRETE_INSTRUCTION(TaggedToI, "tagged-to-i")
   DECLARE_HYDROGEN_ACCESSOR(Change)

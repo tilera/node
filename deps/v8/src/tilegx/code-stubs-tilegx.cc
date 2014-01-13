@@ -1469,6 +1469,16 @@ void CodeStub::GenerateStubsAheadOfTime(Isolate* isolate) {
   BinaryOpStub::GenerateAheadOfTime(isolate);
 }
 
+void BinaryOpStub::InitializeInterfaceDescriptor(
+    Isolate* isolate,
+    CodeStubInterfaceDescriptor* descriptor) {
+  static Register registers[] = { a1, a0 };
+  descriptor->register_param_count_ = 2;
+  descriptor->register_params_ = registers;
+  descriptor->deoptimization_handler_ = FUNCTION_ADDR(BinaryOpIC_Miss);
+  descriptor->SetMissHandler(
+      ExternalReference(IC_Utility(IC::kBinaryOpIC_Miss), isolate));
+}
 
 void CodeStub::GenerateFPStubs(Isolate* isolate) {
   SaveFPRegsMode mode = kDontSaveFPRegs;
@@ -5892,6 +5902,126 @@ void InternalArrayConstructorStub::Generate(MacroAssembler* masm) {
 
   __ bind(&fast_elements_case);
   GenerateCase(masm, FAST_ELEMENTS);
+}
+
+void TranscendentalCacheStub::Generate(MacroAssembler* masm) {
+  // Untagged case: double input in f4, double result goes
+  //   into f4.
+  // Tagged case: tagged input on top of stack and in a0,
+  //   tagged result (heap number) goes into v0.
+
+  Label input_not_smi;
+  Label loaded;
+  Label calculate;
+  Label invalid_cache;
+  const Register scratch0 = t5;
+  const Register scratch1 = t3;
+  const Register scratch2 = t6;
+  const Register cache_entry = a0;
+  const bool tagged = (argument_type_ == TAGGED);
+
+  __ bind(&calculate);
+  Counters* counters = masm->isolate()->counters();
+  __ IncrementCounter(
+      counters->transcendental_cache_miss(), 1, scratch0, scratch1);
+  if (tagged) {
+    __ bind(&invalid_cache);
+    __ TailCallExternalReference(ExternalReference(RuntimeFunction(),
+                                                   masm->isolate()),
+                                 1,
+                                 1);
+  } else {
+    Label no_update;
+    Label skip_cache;
+
+    // Call C function to calculate the result and update the cache.
+    // a0: precalculated cache entry address.
+    // a2 and a3: parts of the double value.
+    // Store a0, a2 and a3 on stack for later before calling C function.
+    __ Push(a3, a2, cache_entry);
+    GenerateCallCFunction(masm, scratch0);
+    __ move(scratch2, v0);
+
+    // Try to update the cache. If we cannot allocate a
+    // heap number, we return the result without updating.
+    __ Pop(a3, a2, cache_entry);
+    __ LoadRoot(t1, Heap::kHeapNumberMapRootIndex);
+    __ AllocateHeapNumber(t2, scratch0, scratch1, t1, &no_update);
+    __ st(scratch2, FieldMemOperand(t2, HeapNumber::kValueOffset));
+
+    __ st(a2, MemOperand(cache_entry, 0 * kPointerSize));
+    __ st(a3, MemOperand(cache_entry, 1 * kPointerSize));
+    __ st(t2, MemOperand(cache_entry, 2 * kPointerSize));
+
+    __ move(v0, cache_entry);
+    __ Ret();
+
+
+    __ bind(&no_update);
+    __ move(v0, scratch2);
+
+    // We return the value in f4 without adding it to the cache, but
+    // we cause a scavenging GC so that future allocations will succeed.
+    {
+      FrameScope scope(masm, StackFrame::INTERNAL);
+
+      // Allocate an aligned object larger than a HeapNumber.
+      ASSERT(4 * kPointerSize >= HeapNumber::kSize);
+      __ li(scratch0, Operand(4 * kPointerSize));
+      __ push(scratch0);
+      __ CallRuntimeSaveDoubles(Runtime::kAllocateInNewSpace);
+    }
+    __ Ret();
+  }
+}
+
+
+void TranscendentalCacheStub::GenerateCallCFunction(MacroAssembler* masm,
+                                                    Register scratch) {
+  __ push(ra);
+  __ PrepareCallCFunction(2, scratch);
+
+  AllowExternalCallThatCantCauseGC scope(masm);
+  Isolate* isolate = masm->isolate();
+  switch (type_) {
+    case TranscendentalCache::SIN:
+      __ CallCFunction(
+          ExternalReference::math_sin_double_function(isolate),
+          1);
+      break;
+    case TranscendentalCache::COS:
+      __ CallCFunction(
+          ExternalReference::math_cos_double_function(isolate),
+          1);
+      break;
+    case TranscendentalCache::TAN:
+      __ CallCFunction(ExternalReference::math_tan_double_function(isolate),
+          1);
+      break;
+    case TranscendentalCache::LOG:
+      __ CallCFunction(
+          ExternalReference::math_log_double_function(isolate),
+          1);
+      break;
+    default:
+      UNIMPLEMENTED();
+      break;
+  }
+  __ pop(ra);
+}
+
+
+Runtime::FunctionId TranscendentalCacheStub::RuntimeFunction() {
+  switch (type_) {
+    // Add more cases when necessary.
+    case TranscendentalCache::SIN: return Runtime::kMath_sin;
+    case TranscendentalCache::COS: return Runtime::kMath_cos;
+    case TranscendentalCache::TAN: return Runtime::kMath_tan;
+    case TranscendentalCache::LOG: return Runtime::kMath_log;
+    default:
+      UNIMPLEMENTED();
+      return Runtime::kAbort;
+  }
 }
 
 #undef __

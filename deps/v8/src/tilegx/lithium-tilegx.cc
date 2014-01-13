@@ -756,6 +756,7 @@ LInstruction* LChunkBuilder::DoArithmeticD(Token::Value op,
   ASSERT(instr->left()->representation().IsDouble());
   ASSERT(instr->right()->representation().IsDouble());
   if (op == Token::MOD) {
+#if 0
     LOperand* left = UseFixedDouble(instr->left(), f2);
     LOperand* right = UseFixedDouble(instr->right(), f4);
     LArithmeticD* result = new(zone()) LArithmeticD(op, left, right);
@@ -763,6 +764,10 @@ LInstruction* LChunkBuilder::DoArithmeticD(Token::Value op,
     // to use fixed result register for the call.
     // TODO(fschneider): Allow any register as input registers.
     return MarkAsCall(DefineFixedDouble(result, f2), instr);
+#else
+    UNREACHABLE();
+    return NULL;
+#endif
   } else {
     LOperand* left = UseRegisterAtStart(instr->left());
     LOperand* right = UseRegisterAtStart(instr->right());
@@ -1196,34 +1201,55 @@ LInstruction* LChunkBuilder::DoUnaryMathOperation(HUnaryMathOperation* instr) {
 
 
 LInstruction* LChunkBuilder::DoMathLog(HUnaryMathOperation* instr) {
+#if 0
   LOperand* input = UseFixedDouble(instr->value(), f4);
   LMathLog* result = new(zone()) LMathLog(input);
   return MarkAsCall(DefineFixedDouble(result, f4), instr);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoMathSin(HUnaryMathOperation* instr) {
+#if 0
   LOperand* input = UseFixedDouble(instr->value(), f4);
   LMathSin* result = new(zone()) LMathSin(input);
   return MarkAsCall(DefineFixedDouble(result, f4), instr);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoMathCos(HUnaryMathOperation* instr) {
+#if 0
   LOperand* input = UseFixedDouble(instr->value(), f4);
   LMathCos* result = new(zone()) LMathCos(input);
   return MarkAsCall(DefineFixedDouble(result, f4), instr);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoMathTan(HUnaryMathOperation* instr) {
+#if 0
   LOperand* input = UseFixedDouble(instr->value(), f4);
   LMathTan* result = new(zone()) LMathTan(input);
   return MarkAsCall(DefineFixedDouble(result, f4), instr);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoMathExp(HUnaryMathOperation* instr) {
+#if 0
   ASSERT(instr->representation().IsDouble());
   ASSERT(instr->value()->representation().IsDouble());
   LOperand* input = UseRegister(instr->value());
@@ -1232,15 +1258,24 @@ LInstruction* LChunkBuilder::DoMathExp(HUnaryMathOperation* instr) {
   LOperand* double_temp = FixedTemp(f6);  // Chosen by fair dice roll.
   LMathExp* result = new(zone()) LMathExp(input, double_temp, temp1, temp2);
   return DefineAsRegister(result);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoMathPowHalf(HUnaryMathOperation* instr) {
+#if 0
   // Input cannot be the same as the result, see LCodeGen::DoMathPowHalf.
   LOperand* input = UseFixedDouble(instr->value(), f8);
   LOperand* temp = FixedTemp(f6);
   LMathPowHalf* result = new(zone()) LMathPowHalf(input, temp);
   return DefineFixedDouble(result, f4);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
@@ -1271,10 +1306,15 @@ LInstruction* LChunkBuilder::DoMathSqrt(HUnaryMathOperation* instr) {
 
 
 LInstruction* LChunkBuilder::DoMathRound(HUnaryMathOperation* instr) {
+#if 0
   LOperand* input = UseRegister(instr->value());
   LOperand* temp = FixedTemp(f6);
   LMathRound* result = new(zone()) LMathRound(input, temp);
   return AssignEnvironment(DefineAsRegister(result));
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
@@ -1437,6 +1477,7 @@ LInstruction* LChunkBuilder::DoMathFloorOfDiv(HMathFloorOfDiv* instr) {
 
 
 LInstruction* LChunkBuilder::DoMod(HMod* instr) {
+#if 0
   HValue* left = instr->left();
   HValue* right = instr->right();
   if (instr->representation().IsSmiOrInteger32()) {
@@ -1474,6 +1515,10 @@ LInstruction* LChunkBuilder::DoMod(HMod* instr) {
   } else {
     return DoArithmeticT(Token::MOD, instr);
   }
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
@@ -1512,13 +1557,14 @@ LInstruction* LChunkBuilder::DoMul(HMul* instr) {
       }
       right_op = UseRegister(right);
     }
-    LMulI* mul = new(zone()) LMulI(left_op, right_op);
+    LMulI* mul = new(zone()) LMulI(left_op, right_op, TempRegister());
     if (can_overflow || bailout_on_minus_zero) {
       AssignEnvironment(mul);
     }
     return DefineAsRegister(mul);
 
   } else if (instr->representation().IsDouble()) {
+#if 0
     if (kArchVariant == kMips32r2) {
       if (instr->UseCount() == 1 && instr->uses().value()->IsAdd()) {
         HAdd* add = HAdd::cast(instr->uses().value());
@@ -1534,6 +1580,7 @@ LInstruction* LChunkBuilder::DoMul(HMul* instr) {
         }
       }
     }
+#endif
     return DoArithmeticD(Token::MUL, instr);
   } else {
     return DoArithmeticT(Token::MUL, instr);
@@ -1583,6 +1630,7 @@ LInstruction* LChunkBuilder::DoAdd(HAdd* instr) {
     }
     return result;
   } else if (instr->representation().IsDouble()) {
+#if 0
     if (kArchVariant == kMips32r2) {
       if (instr->left()->IsMul())
         return DoMultiplyAdd(HMul::cast(instr->left()), instr->right());
@@ -1592,6 +1640,7 @@ LInstruction* LChunkBuilder::DoAdd(HAdd* instr) {
         return DoMultiplyAdd(HMul::cast(instr->right()), instr->left());
       }
     }
+#endif
     return DoArithmeticD(Token::ADD, instr);
   } else {
     return DoArithmeticT(Token::ADD, instr);
@@ -1619,6 +1668,7 @@ LInstruction* LChunkBuilder::DoMathMinMax(HMathMinMax* instr) {
 
 
 LInstruction* LChunkBuilder::DoPower(HPower* instr) {
+#if 0
   ASSERT(instr->representation().IsDouble());
   // We call a C function for double power. It can't trigger a GC.
   // We need to use fixed result register for the call.
@@ -1632,10 +1682,15 @@ LInstruction* LChunkBuilder::DoPower(HPower* instr) {
   return MarkAsCall(DefineFixedDouble(result, f0),
                     instr,
                     CAN_DEOPTIMIZE_EAGERLY);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
 LInstruction* LChunkBuilder::DoRandom(HRandom* instr) {
+#if 0
   ASSERT(instr->representation().IsDouble());
   ASSERT(instr->global_object()->representation().IsTagged());
   LOperand* global_object = UseTempRegister(instr->global_object());
@@ -1645,6 +1700,10 @@ LInstruction* LChunkBuilder::DoRandom(HRandom* instr) {
   LRandom* result = new(zone()) LRandom(
       global_object, scratch, scratch2, scratch3);
   return DefineFixedDouble(result, f0);
+#else
+  UNREACHABLE();
+  return NULL;
+#endif
 }
 
 
@@ -1881,10 +1940,12 @@ LInstruction* LChunkBuilder::DoChange(HChange* instr) {
       } else {
         value = UseRegister(val);
         LOperand* temp1 = TempRegister();
-        LOperand* temp2 = FixedTemp(f22);
+        LOperand* temp2 = TempRegister();
+        LOperand* temp3 = TempRegister();
         res = DefineSameAsFirst(new(zone()) LTaggedToI(value,
                                                        temp1,
-                                                       temp2));
+                                                       temp2,
+                                                       temp3));
         res = AssignEnvironment(res);
       }
       return res;
@@ -1998,14 +2059,14 @@ LInstruction* LChunkBuilder::DoClampToUint8(HClampToUint8* instr) {
   LOperand* reg = UseRegister(value);
   if (input_rep.IsDouble()) {
     // Revisit this decision, here and 8 lines below.
-    return DefineAsRegister(new(zone()) LClampDToUint8(reg, FixedTemp(f22)));
+    return DefineAsRegister(new(zone()) LClampDToUint8(reg, TempRegister(), TempRegister(), TempRegister()));
   } else if (input_rep.IsInteger32()) {
     return DefineAsRegister(new(zone()) LClampIToUint8(reg));
   } else {
     ASSERT(input_rep.IsSmiOrTagged());
     // Register allocator doesn't (yet) support allocation of double
     // temps. Reserve f22 explicitly.
-    LClampTToUint8* result = new(zone()) LClampTToUint8(reg, FixedTemp(f22));
+    LClampTToUint8* result = new(zone()) LClampTToUint8(reg, TempRegister(), TempRegister(), TempRegister());
     return AssignEnvironment(DefineAsRegister(result));
   }
 }

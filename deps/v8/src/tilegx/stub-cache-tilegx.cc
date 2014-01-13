@@ -2749,6 +2749,23 @@ Handle<Code> StoreStubCompiler::CompileStoreCallback(
 }
 
 
+Handle<Code> StoreStubCompiler::CompileStoreCallback(
+    Handle<JSObject> object,
+    Handle<JSObject> holder,
+    Handle<Name> name,
+    const CallOptimization& call_optimization) {
+  Label success;
+  HandlerFrontend(object, receiver(), holder, name, &success);
+  __ bind(&success);
+
+  Register values[] = { value() };
+  GenerateFastApiCall(
+      masm(), call_optimization, receiver(), scratch3(), 1, values);
+
+  // Return the generated code.
+  return GetCode(kind(), Code::CALLBACKS, name);
+}
+
 #undef __
 #define __ ACCESS_MASM(masm)
 

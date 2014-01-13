@@ -251,13 +251,11 @@ void RegExpMacroAssemblerTILEGX::Fail() { UNIMPLEMENTED(); }
 Handle<HeapObject> RegExpMacroAssemblerTILEGX::GetCode(Handle<String> source) { UNIMPLEMENTED();
   CodeDesc code_desc;
   masm_->GetCode(&code_desc);
-  Handle<Code> code = FACTORY->NewCode(code_desc,
-                                       Code::ComputeFlags(Code::REGEXP),
-                                       masm_->CodeObject());
-  LOG(Isolate::Current(), RegExpCodeCreateEvent(*code, *source));
+  Handle<Code> code = isolate()->factory()->NewCode(
+      code_desc, Code::ComputeFlags(Code::REGEXP), masm_->CodeObject());
+  LOG(masm_->isolate(), RegExpCodeCreateEvent(*code, *source));
   return Handle<HeapObject>::cast(code);
 }
-
 
 void RegExpMacroAssemblerTILEGX::GoTo(Label* to) { UNIMPLEMENTED(); }
 
@@ -385,9 +383,6 @@ void RegExpMacroAssemblerTILEGX::CallCFunctionUsingStub(
 
 void RegExpMacroAssemblerTILEGX::LoadCurrentCharacterUnchecked(int cp_offset,
                                                              int characters) { UNIMPLEMENTED(); }
-
-
-void RegExpCEntryStub::Generate(MacroAssembler* masm_) { UNIMPLEMENTED(); }
 
 
 #undef __

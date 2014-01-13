@@ -1520,6 +1520,11 @@ void Builtins::Generate_OsrAfterStackCheck(MacroAssembler* masm) {
   __ Ret();
 }
 
+void Builtins::Generate_ConcurrentRecompile(MacroAssembler* masm) {
+  CallRuntimePassFunction(masm, Runtime::kConcurrentRecompile);
+  GenerateTailCallToSharedCode(masm);
+}
+
 #undef __
 
 } }  // namespace v8::internal

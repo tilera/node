@@ -4157,6 +4157,15 @@ void MacroAssembler::EnumLength(Register dst, Register map) {
   And(dst, dst, Operand(Smi::FromInt(Map::EnumLengthBits::kMask)));
 }
 
+void MacroAssembler::Check(Condition cc, BailoutReason reason,
+                           Register rs, Operand rt) {
+  Label L;
+  Branch(&L, cc, rs, rt);
+  Abort(reason);
+  // Will not return here.
+  bind(&L);
+}
+
 void MacroAssembler::CheckEnumCache(Register null_value, Label* call_runtime) {
   Register  empty_fixed_array_value = t2;
   LoadRoot(empty_fixed_array_value, Heap::kEmptyFixedArrayRootIndex);
