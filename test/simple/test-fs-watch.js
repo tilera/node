@@ -66,8 +66,12 @@ assert.doesNotThrow(
       watcher.on('change', function(event, filename) {
         assert.equal('change', event);
 
-        if (expectFilePath) {
+        // darwin only shows the file path for subdir watching,
+        // not for individual file watching.
+        if (expectFilePath && process.platform !== 'darwin') {
           assert.equal('watch.txt', filename);
+        } else {
+          assert.equal(null, filename);
         }
         watcher.close();
         ++watchSeenOne;
@@ -77,7 +81,7 @@ assert.doesNotThrow(
 
 setTimeout(function() {
   fs.writeFileSync(filepathOne, 'world');
-}, 10);
+}, 1000);
 
 
 process.chdir(testDir);
@@ -89,8 +93,12 @@ assert.doesNotThrow(
       var watcher = fs.watch(filepathTwo, function(event, filename) {
         assert.equal('change', event);
 
-        if (expectFilePath) {
+        // darwin only shows the file path for subdir watching,
+        // not for individual file watching.
+        if (expectFilePath && process.platform !== 'darwin') {
           assert.equal('hasOwnProperty', filename);
+        } else {
+          assert.equal(null, filename);
         }
         watcher.close();
         ++watchSeenTwo;
@@ -100,7 +108,7 @@ assert.doesNotThrow(
 
 setTimeout(function() {
   fs.writeFileSync(filepathTwoAbs, 'pardner');
-}, 10);
+}, 1000);
 
 try { fs.unlinkSync(filepathThree); } catch (e) {}
 try { fs.mkdirSync(testsubdir, 0700); } catch (e) {}
@@ -124,7 +132,7 @@ assert.doesNotThrow(
 setTimeout(function() {
   var fd = fs.openSync(filepathThree, 'w');
   fs.closeSync(fd);
-}, 10);
+}, 1000);
 
 // https://github.com/joyent/node/issues/2293 - non-persistent watcher should
 // not block the event loop

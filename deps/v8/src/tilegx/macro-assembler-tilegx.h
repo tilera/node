@@ -35,12 +35,6 @@
 namespace v8 {
 namespace internal {
 
-// Flags used for LeaveExitFrame function.
-enum LeaveExitFrameMode {
-  EMIT_RETURN = true,
-  NO_EMIT_RETURN = false
-};
-
 // Flags used for AllocateHeapNumber
 enum TaggingMode {
   // Tag the result.
@@ -62,13 +56,6 @@ enum LiFlags {
 enum RememberedSetAction { EMIT_REMEMBERED_SET, OMIT_REMEMBERED_SET };
 enum SmiCheck { INLINE_SMI_CHECK, OMIT_SMI_CHECK };
 enum RAStatus { kRAHasNotBeenSaved, kRAHasBeenSaved };
-
-Register GetRegisterThatIsNotOneOf(Register reg1,
-                                   Register reg2 = no_reg,
-                                   Register reg3 = no_reg,
-                                   Register reg4 = no_reg,
-                                   Register reg5 = no_reg,
-                                   Register reg6 = no_reg);
 
 bool AreAliased(Register r1, Register r2, Register r3, Register r4);
 
@@ -107,9 +94,6 @@ class MacroAssembler: public Assembler {
     kReturnAtEnd,
     kFallThroughAtEnd
   };
-
-  // Generates function and stub prologue code.
-  void Prologue(PrologueFrameMode frame_mode);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type);
@@ -167,8 +151,6 @@ class MacroAssembler: public Assembler {
                                               Register scratch,
                                               Label* failure);
 
-  void JumpIfNotUniqueName(Register reg, Label* not_unique_name);
-
   // Test that both first and second are sequential ASCII strings.
   // Assume that they are non-smis.
   void JumpIfNonSmisNotBothSequentialAsciiStrings(Register first,
@@ -191,7 +173,8 @@ class MacroAssembler: public Assembler {
                           Register input_reg,
                           Register temp_reg,
                           Register temp_reg1,
-                          Register temp_reg2);
+                          Register temp_reg2,
+			  Register temp_reg3);
 
   void LoadInstanceDescriptors(Register map, Register descriptors);
   void EnumLength(Register dst, Register map);
@@ -241,27 +224,10 @@ class MacroAssembler: public Assembler {
 
   void CheckEnumCache(Register null_value, Label* call_runtime);
 
-  // AllocationMemento support. Arrays may have an associated
-  // AllocationMemento object that can be checked for in order to pretransition
-  // to another type.
-  // On entry, receiver_reg should point to the array object.
-  // scratch_reg gets clobbered.
-  // If allocation info is present, jump to allocation_memento_present.
-  void TestJSArrayForAllocationMemento(
-      Register receiver_reg,
-      Register scratch_reg,
-      Label* no_memento_found,
-      Condition cond = al,
-      Label* allocation_memento_present = NULL);
-
-  void JumpIfJSArrayHasAllocationMemento(Register receiver_reg,
-                                         Register scratch_reg,
-                                         Label* memento_found) {
-    Label no_memento_found;
-    TestJSArrayForAllocationMemento(receiver_reg, scratch_reg,
-                                    &no_memento_found, eq, memento_found);
-    bind(&no_memento_found);
-  }
+  void TestJSArrayForAllocationSiteInfo(Register receiver_reg,
+                                        Register scratch_reg,
+                                        Condition cond,
+                                        Label* allocation_info_present);
 
   // Arguments 1-4 are placed in registers a0 thru a3 respectively.
   // Arguments 5..n are stored to stack using following:
@@ -280,21 +246,6 @@ class MacroAssembler: public Assembler {
   void JumpIfDataObject(Register value,
                         Register scratch,
                         Label* not_data_object);
-
-  // -------------------------------------------------------------------------
-  // String utilities.
-
-  // Generate code to do a lookup in the number string cache. If the number in
-  // the register object is found in the cache the generated code falls through
-  // with the result in the result register. The object and the result register
-  // can be the same. If the number is not found in the cache the code jumps to
-  // the label not_found with only the content of register object unchanged.
-  void LookupNumberStringCache(Register object,
-                               Register result,
-                               Register scratch1,
-                               Register scratch2,
-                               Register scratch3,
-                               Label* not_found);
 
   void JumpIfBothInstanceTypesAreNotSequentialAscii(
       Register first_object_instance_type,
@@ -332,15 +283,15 @@ class MacroAssembler: public Assembler {
 
   // Calls Abort(msg) if the condition cc is not satisfied.
   // Use --debug_code to enable.
-  void Assert(Condition cc, BailoutReason reason, Register rs, Operand rt);
+  void Assert(Condition cc, const char* msg, Register rs, Operand rt);
   void AssertRegisterIsRoot(Register reg, Heap::RootListIndex index);
   void AssertFastElements(Register elements);
 
   // Like Assert(), but always enabled.
-  void Check(Condition cc, BailoutReason reason, Register rs, Operand rt);
+  void Check(Condition cc, const char* msg, Register rs, Operand rt);
 
   // Print a message to stdout and abort execution.
-  void Abort(BailoutReason reason);
+  void Abort(const char* msg);
 
   // Abort execution if argument is a smi, enabled via --debug-code.
   void AssertNotSmi(Register object);
@@ -352,6 +303,11 @@ class MacroAssembler: public Assembler {
   // Abort execution if argument is not a name, enabled via --debug-code.
   void AssertName(Register object);
 
+  // Abort execution if argument is not the root value with the given index,
+  // enabled via --debug-code.
+  void AssertRootValue(Register src,
+                       Heap::RootListIndex root_value_index,
+                       const char* message);
 
   void JumpIfNotHeapNumber(Register object,
                            Register heap_number_map,
@@ -546,8 +502,6 @@ class MacroAssembler: public Assembler {
   void MultiPushFPU(RegList regs);
   void MultiPushReversedFPU(RegList regs);
 
-  void Push(Register src) { push(src); }
-
   // Pops multiple values from the stack and load them in the
   // registers specified in regs. Pop order is the opposite as in MultiPush.
   void MultiPop(RegList regs);
@@ -555,8 +509,6 @@ class MacroAssembler: public Assembler {
 
   void MultiPopFPU(RegList regs);
   void MultiPopReversedFPU(RegList regs);
-
-  void Pop(Register dst) { pop(dst); }
 
   // Flush the I-cache from asm code. You should use CPU::FlushICache from C.
   // Does not handle errors.
@@ -807,7 +759,8 @@ class MacroAssembler: public Assembler {
                            Handle<Map> map,
                            Label* early_success,
                            Condition cond,
-                           Label* branch_to);
+                           Label* branch_to,
+                           CompareMapMode mode = REQUIRE_EXACT_MAP);
 
   // As above, but the map of the object is already loaded into the register
   // which is preserved by the code generated.
@@ -815,7 +768,8 @@ class MacroAssembler: public Assembler {
                            Handle<Map> map,
                            Label* early_success,
                            Condition cond,
-                           Label* branch_to);
+                           Label* branch_to,
+                           CompareMapMode mode = REQUIRE_EXACT_MAP);
 
   void StoreNumberToDoubleElements(Register value_reg,
                                    Register key_reg,
@@ -899,13 +853,7 @@ class MacroAssembler: public Assembler {
   // from handle and propagates exceptions.  Restores context.  stack_space
   // - space to be unwound on exit (includes the call JS arguments space and
   // the additional space allocated for the fast call).
-  void CallApiFunctionAndReturn(ExternalReference function,
-                                Address function_address,
-                                ExternalReference thunk_ref,
-                                Register thunk_last_arg,
-                                int stack_space,
-                                MemOperand return_value_operand,
-                                MemOperand* context_restore_operand);
+  void CallApiFunctionAndReturn(ExternalReference function, int stack_space);
 
   // Jump to the builtin routine.
   void JumpToExternalReference(const ExternalReference& builtin);
@@ -968,7 +916,9 @@ class MacroAssembler: public Assembler {
                 Register scratch,
                 Handle<Map> map,
                 Label* fail,
-                SmiCheckType smi_check_type);
+		SmiCheckType smi_check_type,
+		CompareMapMode mode = REQUIRE_EXACT_MAP);
+
 
   void CheckMap(Register obj,
                 Register scratch,
@@ -1041,14 +991,7 @@ class MacroAssembler: public Assembler {
 
   void LoadHeapObject(Register dst, Handle<HeapObject> object);
 
-  void LoadObject(Register result, Handle<Object> object) {
-    AllowDeferredHandleDereference heap_object_check;
-    if (object->IsHeapObject()) {
-      LoadHeapObject(result, Handle<HeapObject>::cast(object));
-    } else {
-      li(result, object);
-    }
-  }
+  void LoadObject(Register result, Handle<Object> object) { UNREACHABLE(); }
 
   // Get the actual activation frame alignment for target environment.
   static int ActivationFrameAlignment();
@@ -1066,8 +1009,7 @@ class MacroAssembler: public Assembler {
   // Leave the current exit frame.
   void LeaveExitFrame(bool save_doubles,
                       Register arg_count,
-                      bool restore_context,
-                      bool do_return = NO_EMIT_RETURN);
+                      bool do_return = false);
 
   // Push and pop the registers that can hold pointers, as defined by the
   // RegList constant kSafepointSavedRegisters.

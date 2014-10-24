@@ -54,7 +54,6 @@ class HttpRequest {
   virtual const string& UserAgent() = 0;
 };
 
-
 /**
  * The abstract superclass of http request processors.
  */
@@ -72,7 +71,6 @@ class HttpRequestProcessor {
 
   static void Log(const char* event);
 };
-
 
 /**
  * An http request processor that is scriptable using JavaScript.
@@ -104,21 +102,18 @@ class JsHttpRequestProcessor : public HttpRequestProcessor {
   static Handle<ObjectTemplate> MakeMapTemplate(Isolate* isolate);
 
   // Callbacks that access the individual fields of request objects.
-  static void GetPath(Local<String> name,
-                      const PropertyCallbackInfo<Value>& info);
-  static void GetReferrer(Local<String> name,
-                          const PropertyCallbackInfo<Value>& info);
-  static void GetHost(Local<String> name,
-                      const PropertyCallbackInfo<Value>& info);
-  static void GetUserAgent(Local<String> name,
-                           const PropertyCallbackInfo<Value>& info);
+  static Handle<Value> GetPath(Local<String> name, const AccessorInfo& info);
+  static Handle<Value> GetReferrer(Local<String> name,
+                                   const AccessorInfo& info);
+  static Handle<Value> GetHost(Local<String> name, const AccessorInfo& info);
+  static Handle<Value> GetUserAgent(Local<String> name,
+                                    const AccessorInfo& info);
 
   // Callbacks that access maps
-  static void MapGet(Local<String> name,
-                     const PropertyCallbackInfo<Value>& info);
-  static void MapSet(Local<String> name,
-                     Local<Value> value,
-                     const PropertyCallbackInfo<Value>& info);
+  static Handle<Value> MapGet(Local<String> name, const AccessorInfo& info);
+  static Handle<Value> MapSet(Local<String> name,
+                              Local<Value> value,
+                              const AccessorInfo& info);
 
   // Utility methods for wrapping C++ objects as JavaScript objects,
   // and going back again.
@@ -137,18 +132,18 @@ class JsHttpRequestProcessor : public HttpRequestProcessor {
   static Persistent<ObjectTemplate> map_template_;
 };
 
-
 // -------------------------
 // --- P r o c e s s o r ---
 // -------------------------
 
 
-static void LogCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  if (args.Length() < 1) return;
+static Handle<Value> LogCallback(const Arguments& args) {
+  if (args.Length() < 1) return Undefined();
   HandleScope scope(args.GetIsolate());
   Handle<Value> arg = args[0];
   String::Utf8Value value(arg);
   HttpRequestProcessor::Log(*value);
+  return Undefined();
 }
 
 
@@ -168,12 +163,11 @@ bool JsHttpRequestProcessor::Initialize(map<string, string>* opts,
   // is what we need for the reference to remain after we return from
   // this method. That persistent handle has to be disposed in the
   // destructor.
-  v8::Handle<v8::Context> context = Context::New(GetIsolate(), NULL, global);
-  context_.Reset(GetIsolate(), context);
+  context_ = Context::New(NULL, global);
 
   // Enter the new context so all the following operations take place
   // within it.
-  Context::Scope context_scope(context);
+  Context::Scope context_scope(context_);
 
   // Make the options mapping available within the context
   if (!InstallMaps(opts, output))
@@ -186,7 +180,7 @@ bool JsHttpRequestProcessor::Initialize(map<string, string>* opts,
   // The script compiled and ran correctly.  Now we fetch out the
   // Process function from the global object.
   Handle<String> process_name = String::New("Process");
-  Handle<Value> process_val = context->Global()->Get(process_name);
+  Handle<Value> process_val = context_->Global()->Get(process_name);
 
   // If there is no Process function, or if it is not a function,
   // bail out
@@ -197,7 +191,7 @@ bool JsHttpRequestProcessor::Initialize(map<string, string>* opts,
 
   // Store the function in a Persistent handle, since we also want
   // that to remain after this call returns
-  process_.Reset(GetIsolate(), process_fun);
+  process_ = Persistent<Function>::New(GetIsolate(), process_fun);
 
   // All done; all went well
   return true;
@@ -240,14 +234,11 @@ bool JsHttpRequestProcessor::InstallMaps(map<string, string>* opts,
   // Wrap the map object in a JavaScript wrapper
   Handle<Object> opts_obj = WrapMap(opts);
 
-  v8::Local<v8::Context> context =
-      v8::Local<v8::Context>::New(GetIsolate(), context_);
-
   // Set the options object as a property on the global object.
-  context->Global()->Set(String::New("options"), opts_obj);
+  context_->Global()->Set(String::New("options"), opts_obj);
 
   Handle<Object> output_obj = WrapMap(output);
-  context->Global()->Set(String::New("output"), output_obj);
+  context_->Global()->Set(String::New("output"), output_obj);
 
   return true;
 }
@@ -257,12 +248,9 @@ bool JsHttpRequestProcessor::Process(HttpRequest* request) {
   // Create a handle scope to keep the temporary object references.
   HandleScope handle_scope(GetIsolate());
 
-  v8::Local<v8::Context> context =
-      v8::Local<v8::Context>::New(GetIsolate(), context_);
-
   // Enter this processor's context so all the remaining operations
   // take place there
-  Context::Scope context_scope(context);
+  Context::Scope context_scope(context_);
 
   // Wrap the C++ request object in a JavaScript wrapper
   Handle<Object> request_obj = WrapRequest(request);
@@ -274,9 +262,7 @@ bool JsHttpRequestProcessor::Process(HttpRequest* request) {
   // and one argument, the request.
   const int argc = 1;
   Handle<Value> argv[argc] = { request_obj };
-  v8::Local<v8::Function> process =
-      v8::Local<v8::Function>::New(GetIsolate(), process_);
-  Handle<Value> result = process->Call(context->Global(), argc, argv);
+  Handle<Value> result = process_->Call(context_->Global(), argc, argv);
   if (result.IsEmpty()) {
     String::Utf8Value error(try_catch.Exception());
     Log(*error);
@@ -291,8 +277,9 @@ JsHttpRequestProcessor::~JsHttpRequestProcessor() {
   // Dispose the persistent handles.  When noone else has any
   // references to the objects stored in the handles they will be
   // automatically reclaimed.
-  context_.Dispose();
-  process_.Dispose();
+  Isolate* isolate = GetIsolate();
+  context_.Dispose(isolate);
+  process_.Dispose(isolate);
 }
 
 
@@ -314,10 +301,9 @@ Handle<Object> JsHttpRequestProcessor::WrapMap(map<string, string>* obj) {
   // It only has to be created once, which we do on demand.
   if (map_template_.IsEmpty()) {
     Handle<ObjectTemplate> raw_template = MakeMapTemplate(GetIsolate());
-    map_template_.Reset(GetIsolate(), raw_template);
+    map_template_ = Persistent<ObjectTemplate>::New(GetIsolate(), raw_template);
   }
-  Handle<ObjectTemplate> templ =
-      Local<ObjectTemplate>::New(GetIsolate(), map_template_);
+  Handle<ObjectTemplate> templ = map_template_;
 
   // Create an empty map wrapper.
   Handle<Object> result = templ->NewInstance();
@@ -354,8 +340,8 @@ string ObjectToString(Local<Value> value) {
 }
 
 
-void JsHttpRequestProcessor::MapGet(Local<String> name,
-                                    const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::MapGet(Local<String> name,
+                                             const AccessorInfo& info) {
   // Fetch the map wrapped by this object.
   map<string, string>* obj = UnwrapMap(info.Holder());
 
@@ -366,18 +352,17 @@ void JsHttpRequestProcessor::MapGet(Local<String> name,
   map<string, string>::iterator iter = obj->find(key);
 
   // If the key is not present return an empty handle as signal
-  if (iter == obj->end()) return;
+  if (iter == obj->end()) return Handle<Value>();
 
   // Otherwise fetch the value and wrap it in a JavaScript string
   const string& value = (*iter).second;
-  info.GetReturnValue().Set(
-      String::New(value.c_str(), static_cast<int>(value.length())));
+  return String::New(value.c_str(), static_cast<int>(value.length()));
 }
 
 
-void JsHttpRequestProcessor::MapSet(Local<String> name,
-                                    Local<Value> value_obj,
-                                    const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::MapSet(Local<String> name,
+                                             Local<Value> value_obj,
+                                             const AccessorInfo& info) {
   // Fetch the map wrapped by this object.
   map<string, string>* obj = UnwrapMap(info.Holder());
 
@@ -389,7 +374,7 @@ void JsHttpRequestProcessor::MapSet(Local<String> name,
   (*obj)[key] = value;
 
   // Return the value; any non-empty handle will work.
-  info.GetReturnValue().Set(value_obj);
+  return value_obj;
 }
 
 
@@ -422,10 +407,10 @@ Handle<Object> JsHttpRequestProcessor::WrapRequest(HttpRequest* request) {
   // It only has to be created once, which we do on demand.
   if (request_template_.IsEmpty()) {
     Handle<ObjectTemplate> raw_template = MakeRequestTemplate(GetIsolate());
-    request_template_.Reset(GetIsolate(), raw_template);
+    request_template_ =
+        Persistent<ObjectTemplate>::New(GetIsolate(), raw_template);
   }
-  Handle<ObjectTemplate> templ =
-      Local<ObjectTemplate>::New(GetIsolate(), request_template_);
+  Handle<ObjectTemplate> templ = request_template_;
 
   // Create an empty http request wrapper.
   Handle<Object> result = templ->NewInstance();
@@ -456,8 +441,8 @@ HttpRequest* JsHttpRequestProcessor::UnwrapRequest(Handle<Object> obj) {
 }
 
 
-void JsHttpRequestProcessor::GetPath(Local<String> name,
-                                     const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::GetPath(Local<String> name,
+                                              const AccessorInfo& info) {
   // Extract the C++ request object from the JavaScript wrapper.
   HttpRequest* request = UnwrapRequest(info.Holder());
 
@@ -465,37 +450,31 @@ void JsHttpRequestProcessor::GetPath(Local<String> name,
   const string& path = request->Path();
 
   // Wrap the result in a JavaScript string and return it.
-  info.GetReturnValue().Set(
-      String::New(path.c_str(), static_cast<int>(path.length())));
+  return String::New(path.c_str(), static_cast<int>(path.length()));
 }
 
 
-void JsHttpRequestProcessor::GetReferrer(
-    Local<String> name,
-    const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::GetReferrer(Local<String> name,
+                                                  const AccessorInfo& info) {
   HttpRequest* request = UnwrapRequest(info.Holder());
   const string& path = request->Referrer();
-  info.GetReturnValue().Set(
-      String::New(path.c_str(), static_cast<int>(path.length())));
+  return String::New(path.c_str(), static_cast<int>(path.length()));
 }
 
 
-void JsHttpRequestProcessor::GetHost(Local<String> name,
-                                     const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::GetHost(Local<String> name,
+                                              const AccessorInfo& info) {
   HttpRequest* request = UnwrapRequest(info.Holder());
   const string& path = request->Host();
-  info.GetReturnValue().Set(
-      String::New(path.c_str(), static_cast<int>(path.length())));
+  return String::New(path.c_str(), static_cast<int>(path.length()));
 }
 
 
-void JsHttpRequestProcessor::GetUserAgent(
-    Local<String> name,
-    const PropertyCallbackInfo<Value>& info) {
+Handle<Value> JsHttpRequestProcessor::GetUserAgent(Local<String> name,
+                                                   const AccessorInfo& info) {
   HttpRequest* request = UnwrapRequest(info.Holder());
   const string& path = request->UserAgent();
-  info.GetReturnValue().Set(
-      String::New(path.c_str(), static_cast<int>(path.length())));
+  return String::New(path.c_str(), static_cast<int>(path.length()));
 }
 
 
@@ -626,7 +605,6 @@ void PrintMap(map<string, string>* m) {
 
 
 int main(int argc, char* argv[]) {
-  v8::V8::InitializeICU();
   map<string, string> options;
   string file;
   ParseOptions(argc, argv, options, &file);

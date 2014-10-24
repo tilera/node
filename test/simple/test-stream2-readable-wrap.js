@@ -39,14 +39,17 @@ function runTest(highWaterMark, objectMode, produce) {
     ended = true;
   });
 
+  var pauses = 0;
+  var resumes = 0;
+
   old.pause = function() {
-    console.error('old.pause()');
+    pauses++;
     old.emit('pause');
     flowing = false;
   };
 
   old.resume = function() {
-    console.error('old.resume()');
+    resumes++;
     old.emit('resume');
     flow();
   };
@@ -60,9 +63,8 @@ function runTest(highWaterMark, objectMode, produce) {
     while (flowing && chunks-- > 0) {
       var item = produce();
       expected.push(item);
-      console.log('old.emit', chunks, flowing);
+      console.log('emit', chunks);
       old.emit('data', item);
-      console.log('after emit', chunks, flowing);
     }
     if (chunks <= 0) {
       oldEnded = true;
@@ -74,7 +76,7 @@ function runTest(highWaterMark, objectMode, produce) {
   var w = new Writable({ highWaterMark: highWaterMark * 2, objectMode: objectMode });
   var written = [];
   w._write = function(chunk, encoding, cb) {
-    console.log('_write', chunk);
+    console.log(chunk);
     written.push(chunk);
     setTimeout(cb);
   };
@@ -92,10 +94,11 @@ function runTest(highWaterMark, objectMode, produce) {
     assert(ended);
     assert(oldEnded);
     assert.deepEqual(written, expected);
+    assert.equal(pauses, 10);
+    assert.equal(resumes, 9);
   }
 }
 
-runTest(100, false, function(){ return new Buffer(100); });
 runTest(10, false, function(){ return new Buffer('xxxxxxxxxx'); });
 runTest(1, true, function(){ return { foo: 'bar' }; });
 

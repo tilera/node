@@ -99,10 +99,10 @@ UnaryMathFunction CreateSqrtFunction();
 class ElementsTransitionGenerator : public AllStatic {
  public:
   // If |mode| is set to DONT_TRACK_ALLOCATION_SITE,
-  // |allocation_memento_found| may be NULL.
+  // |allocation_site_info_found| may be NULL.
   static void GenerateMapChangeElementsTransition(MacroAssembler* masm,
       AllocationSiteMode mode,
-      Label* allocation_memento_found);
+      Label* allocation_site_info_found);
   static void GenerateSmiToDouble(MacroAssembler* masm,
                                   AllocationSiteMode mode,
                                   Label* fail);
@@ -112,6 +112,18 @@ class ElementsTransitionGenerator : public AllStatic {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ElementsTransitionGenerator);
+};
+
+
+class SeqStringSetCharGenerator : public AllStatic {
+ public:
+  static void Generate(MacroAssembler* masm,
+                       String::Encoding encoding,
+                       Register string,
+                       Register index,
+                       Register value);
+ private:
+  DISALLOW_COPY_AND_ASSIGN(SeqStringSetCharGenerator);
 };
 
 

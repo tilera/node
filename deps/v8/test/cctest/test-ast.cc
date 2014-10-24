@@ -39,10 +39,11 @@ TEST(List) {
   List<AstNode*>* list = new List<AstNode*>(0);
   CHECK_EQ(0, list->length());
 
-  Isolate* isolate = CcTest::i_isolate();
-  Zone zone(isolate);
-  AstNodeFactory<AstNullVisitor> factory(isolate, &zone);
-  AstNode* node = factory.NewEmptyStatement(RelocInfo::kNoPosition);
+  Isolate* isolate = Isolate::Current();
+  Zone* zone = isolate->runtime_zone();
+  ZoneScope zone_scope(zone, DELETE_ON_EXIT);
+  AstNodeFactory<AstNullVisitor> factory(isolate, zone);
+  AstNode* node = factory.NewEmptyStatement();
   list->Add(node);
   CHECK_EQ(1, list->length());
   CHECK_EQ(node, list->at(0));

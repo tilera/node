@@ -16,6 +16,9 @@
 
 #include "ares_setup.h"
 
+#ifdef HAVE_SYS_SOCKET_H
+#  include <sys/socket.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif
@@ -27,7 +30,7 @@
 #endif
 
 #include "ares.h"
-#include "ares_inet_net_pton.h"
+#include "inet_net_pton.h"
 #include "ares_nowarn.h"
 #include "ares_private.h"
 

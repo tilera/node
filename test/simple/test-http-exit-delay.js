@@ -55,6 +55,6 @@ server.listen(common.PORT, 'localhost', function() {
 process.on('exit', function() {
   var d = process.hrtime(start);
   assert.equal(d[0], 0);
-  assert(d[1] / 1e9 < 0.03);
+  assert(d[1] / 1e9 < 0.3);
   console.log('ok');
 });

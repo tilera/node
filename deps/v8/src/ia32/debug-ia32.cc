@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_IA32
+#if defined(V8_TARGET_ARCH_IA32)
 
 #include "codegen.h"
 #include "debug.h"
@@ -49,8 +49,8 @@ bool BreakLocationIterator::IsDebugBreakAtReturn() {
 void BreakLocationIterator::SetDebugBreakAtReturn() {
   ASSERT(Assembler::kJSReturnSequenceLength >=
          Assembler::kCallInstructionLength);
-  rinfo()->PatchCodeWithCall(
-      debug_info_->GetIsolate()->debug()->debug_break_return()->entry(),
+  Isolate* isolate = Isolate::Current();
+  rinfo()->PatchCodeWithCall(isolate->debug()->debug_break_return()->entry(),
       Assembler::kJSReturnSequenceLength - Assembler::kCallInstructionLength);
 }
 
@@ -79,7 +79,7 @@ bool BreakLocationIterator::IsDebugBreakAtSlot() {
 
 void BreakLocationIterator::SetDebugBreakAtSlot() {
   ASSERT(IsDebugBreakSlot());
-  Isolate* isolate = debug_info_->GetIsolate();
+  Isolate* isolate = Isolate::Current();
   rinfo()->PatchCodeWithCall(
       isolate->debug()->debug_break_slot()->entry(),
       Assembler::kDebugBreakSlotLength - Assembler::kCallInstructionLength);
@@ -90,7 +90,6 @@ void BreakLocationIterator::ClearDebugBreakAtSlot() {
   ASSERT(IsDebugBreakSlot());
   rinfo()->PatchCode(original_rinfo()->pc(), Assembler::kDebugBreakSlotLength);
 }
-
 
 // All debug break stubs support padding for LiveEdit.
 const bool Debug::FramePaddingLayout::kIsSupported = true;
@@ -128,7 +127,7 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
       if ((non_object_regs & (1 << r)) != 0) {
         if (FLAG_debug_code) {
           __ test(reg, Immediate(0xc0000000));
-          __ Assert(zero, kUnableToEncodeValueAsSmi);
+          __ Assert(zero, "Unable to encode value as smi");
         }
         __ SmiTag(reg);
         __ push(reg);

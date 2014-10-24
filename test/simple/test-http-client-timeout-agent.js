@@ -70,7 +70,7 @@ server.listen(options.port, options.host, function() {
       console.log('req#'+this.id+' error');
       this.destroy();
     });
-    req.setTimeout(50, function () {
+    req.setTimeout(500, function () {
       var req = this;
       console.log('req#'+this.id + ' timeout');
       req.abort();
@@ -85,9 +85,9 @@ server.listen(options.port, options.host, function() {
         server.close();
       }, 100);
     } else {
-      setTimeout(maybeDone, 100);
+      setTimeout(maybeDone, 1000);
     }
-  }, 100);
+  }, 1000);
 });
 
 process.on('exit', function() {

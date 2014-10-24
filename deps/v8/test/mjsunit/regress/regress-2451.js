@@ -37,4 +37,5 @@ f();
 f();
 %OptimizeFunctionOnNextCall(f);
 f();
-assertOptimized(f);
+assertTrue(%GetOptimizationStatus(f) != 2);
+

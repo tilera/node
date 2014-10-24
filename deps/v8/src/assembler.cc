@@ -43,7 +43,7 @@
 #include "deoptimizer.h"
 #include "execution.h"
 #include "ic.h"
-#include "isolate-inl.h"
+#include "isolate.h"
 #include "jsregexp.h"
 #include "lazy-instance.h"
 #include "platform.h"
@@ -102,7 +102,6 @@ struct DoubleConstant BASE_EMBEDDED {
   double negative_infinity;
   double canonical_non_hole_nan;
   double the_hole_nan;
-  double uint32_bias;
 };
 
 static DoubleConstant double_constants;
@@ -124,7 +123,7 @@ AssemblerBase::AssemblerBase(Isolate* isolate, void* buffer, int buffer_size)
       emit_debug_code_(FLAG_debug_code),
       predictable_code_size_(false) {
   if (FLAG_mask_constants_with_cookie && isolate != NULL)  {
-    jit_cookie_ = isolate->random_number_generator()->NextInt();
+    jit_cookie_ = V8::RandomPrivate(isolate);
   }
 
   if (buffer == NULL) {
@@ -209,24 +208,6 @@ CpuFeatureScope::~CpuFeatureScope() {
   assembler_->set_enabled_cpu_features(old_enabled_);
 }
 #endif
-
-
-// -----------------------------------------------------------------------------
-// Implementation of PlatformFeatureScope
-
-PlatformFeatureScope::PlatformFeatureScope(CpuFeature f)
-    : old_cross_compile_(CpuFeatures::cross_compile_) {
-  // CpuFeatures is a global singleton, therefore this is only safe in
-  // single threaded code.
-  ASSERT(Serializer::enabled());
-  uint64_t mask = static_cast<uint64_t>(1) << f;
-  CpuFeatures::cross_compile_ |= mask;
-}
-
-
-PlatformFeatureScope::~PlatformFeatureScope() {
-  CpuFeatures::cross_compile_ = old_cross_compile_;
-}
 
 
 // -----------------------------------------------------------------------------
@@ -404,7 +385,6 @@ void RelocInfoWriter::WriteExtraTaggedIntData(int data_delta, int top_tag) {
   }
 }
 
-
 void RelocInfoWriter::WriteExtraTaggedConstPoolData(int data) {
   WriteExtraTag(kConstPoolExtraTag, kConstPoolTag);
   for (int i = 0; i < kIntSize; i++) {
@@ -413,7 +393,6 @@ void RelocInfoWriter::WriteExtraTaggedConstPoolData(int data) {
     data = data >> kBitsPerByte;
   }
 }
-
 
 void RelocInfoWriter::WriteExtraTaggedData(intptr_t data_delta, int top_tag) {
   WriteExtraTag(kDataJumpExtraTag, top_tag);
@@ -749,7 +728,7 @@ bool RelocInfo::RequiresRelocation(const CodeDesc& desc) {
   // generation.
   int mode_mask = RelocInfo::kCodeTargetMask |
                   RelocInfo::ModeMask(RelocInfo::EMBEDDED_OBJECT) |
-                  RelocInfo::ModeMask(RelocInfo::CELL) |
+                  RelocInfo::ModeMask(RelocInfo::GLOBAL_PROPERTY_CELL) |
                   RelocInfo::kApplyMask;
   RelocIterator it(desc, mode_mask);
   return !it.done();
@@ -779,8 +758,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "code target";
     case RelocInfo::CODE_TARGET_WITH_ID:
       return "code target with id";
-    case RelocInfo::CELL:
-      return "property cell";
+    case RelocInfo::GLOBAL_PROPERTY_CELL:
+      return "global property cell";
     case RelocInfo::RUNTIME_ENTRY:
       return "runtime entry";
     case RelocInfo::JS_RETURN:
@@ -821,7 +800,7 @@ void RelocInfo::Print(Isolate* isolate, FILE* out) {
     target_object()->ShortPrint(out);
     PrintF(out, ")");
   } else if (rmode_ == EXTERNAL_REFERENCE) {
-    ExternalReferenceEncoder ref_encoder(isolate);
+    ExternalReferenceEncoder ref_encoder;
     PrintF(out, " (%s)  (%p)",
            ref_encoder.NameOfAddress(*target_reference_address()),
            *target_reference_address());
@@ -855,7 +834,7 @@ void RelocInfo::Verify() {
     case EMBEDDED_OBJECT:
       Object::VerifyPointer(target_object());
       break;
-    case CELL:
+    case GLOBAL_PROPERTY_CELL:
       Object::VerifyPointer(target_cell());
       break;
     case DEBUG_BREAK:
@@ -872,7 +851,7 @@ void RelocInfo::Verify() {
       CHECK(addr != NULL);
       // Check that we can find the right code object.
       Code* code = Code::GetCodeFromTargetAddress(addr);
-      Object* found = code->GetIsolate()->FindCodeObject(addr);
+      Object* found = HEAP->FindCodeObject(addr);
       CHECK(found->IsCode());
       CHECK(code->address() == HeapObject::cast(found)->address());
       break;
@@ -913,10 +892,8 @@ void ExternalReference::SetUp() {
   double_constants.canonical_non_hole_nan = OS::nan_value();
   double_constants.the_hole_nan = BitCast<double>(kHoleNanInt64);
   double_constants.negative_infinity = -V8_INFINITY;
-  double_constants.uint32_bias =
-    static_cast<double>(static_cast<uint32_t>(0xFFFFFFFF)) + 1;
 
-  math_exp_data_mutex = new Mutex();
+  math_exp_data_mutex = OS::CreateMutex();
 }
 
 
@@ -924,7 +901,7 @@ void ExternalReference::InitializeMathExpData() {
   // Early return?
   if (math_exp_data_initialized) return;
 
-  LockGuard<Mutex> lock_guard(math_exp_data_mutex);
+  math_exp_data_mutex->Lock();
   if (!math_exp_data_initialized) {
     // If this is changed, generated code must be adapted too.
     const int kTableSizeBits = 11;
@@ -960,6 +937,7 @@ void ExternalReference::InitializeMathExpData() {
 
     math_exp_data_initialized = true;
   }
+  math_exp_data_mutex->Unlock();
 }
 
 
@@ -1092,20 +1070,8 @@ ExternalReference ExternalReference::get_make_code_young_function(
 }
 
 
-ExternalReference ExternalReference::get_mark_code_as_executed_function(
-    Isolate* isolate) {
-  return ExternalReference(Redirect(
-      isolate, FUNCTION_ADDR(Code::MarkCodeAsExecuted)));
-}
-
-
 ExternalReference ExternalReference::date_cache_stamp(Isolate* isolate) {
   return ExternalReference(isolate->date_cache()->stamp_address());
-}
-
-
-ExternalReference ExternalReference::stress_deopt_count(Isolate* isolate) {
-  return ExternalReference(isolate->stress_deopt_count_address());
 }
 
 
@@ -1158,12 +1124,6 @@ ExternalReference ExternalReference::keyed_lookup_cache_field_offsets(
 
 ExternalReference ExternalReference::roots_array_start(Isolate* isolate) {
   return ExternalReference(isolate->heap()->roots_array_start());
-}
-
-
-ExternalReference ExternalReference::allocation_sites_list_address(
-    Isolate* isolate) {
-  return ExternalReference(isolate->heap()->allocation_sites_list_address());
 }
 
 
@@ -1244,13 +1204,6 @@ ExternalReference ExternalReference::old_data_space_allocation_limit_address(
     Isolate* isolate) {
   return ExternalReference(
       isolate->heap()->OldDataSpaceAllocationLimitAddress());
-}
-
-
-ExternalReference ExternalReference::
-    new_space_high_promotion_mode_active_address(Isolate* isolate) {
-  return ExternalReference(
-      isolate->heap()->NewSpaceHighPromotionModeActiveAddress());
 }
 
 
@@ -1347,26 +1300,12 @@ ExternalReference ExternalReference::address_of_the_hole_nan() {
 }
 
 
-ExternalReference ExternalReference::record_object_allocation_function(
-  Isolate* isolate) {
-  return ExternalReference(
-      Redirect(isolate,
-               FUNCTION_ADDR(HeapProfiler::RecordObjectAllocationFromMasm)));
-}
-
-
-ExternalReference ExternalReference::address_of_uint32_bias() {
-  return ExternalReference(
-      reinterpret_cast<void*>(&double_constants.uint32_bias));
-}
-
-
 #ifndef V8_INTERPRETED_REGEXP
 
 ExternalReference ExternalReference::re_check_stack_guard_state(
     Isolate* isolate) {
   Address function;
-#if V8_TARGET_ARCH_X64
+#ifdef V8_TARGET_ARCH_X64
   function = FUNCTION_ADDR(RegExpMacroAssemblerX64::CheckStackGuardState);
 #elif V8_TARGET_ARCH_IA32
   function = FUNCTION_ADDR(RegExpMacroAssemblerIA32::CheckStackGuardState);
@@ -1382,7 +1321,6 @@ ExternalReference ExternalReference::re_check_stack_guard_state(
   return ExternalReference(Redirect(isolate, function));
 }
 
-
 ExternalReference ExternalReference::re_grow_stack(Isolate* isolate) {
   return ExternalReference(
       Redirect(isolate, FUNCTION_ADDR(NativeRegExpMacroAssembler::GrowStack)));
@@ -1394,7 +1332,6 @@ ExternalReference ExternalReference::re_case_insensitive_compare_uc16(
       isolate,
       FUNCTION_ADDR(NativeRegExpMacroAssembler::CaseInsensitiveCompareUC16)));
 }
-
 
 ExternalReference ExternalReference::re_word_character_map() {
   return ExternalReference(

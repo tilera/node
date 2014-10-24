@@ -23,7 +23,7 @@ var common = require('../common');
 var assert = require('assert');
 var http = require('http');
 
-var name = http.globalAgent.getName({ port: common.PORT });
+var name = 'localhost:' + common.PORT;
 var max = 3;
 var count = 0;
 
@@ -53,6 +53,7 @@ function request(i) {
     socket.on('close', function() {
       ++count;
       if (count < max) {
+        assert.equal(http.globalAgent.sockets[name].length, max - count);
         assert.equal(http.globalAgent.sockets[name].indexOf(socket), -1);
       } else {
         assert(!http.globalAgent.sockets.hasOwnProperty(name));

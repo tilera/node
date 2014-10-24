@@ -56,39 +56,22 @@ void SharedFunctionInfoMoveEventRecord::UpdateCodeMap(CodeMap* code_map) {
 }
 
 
-void ReportBuiltinEventRecord::UpdateCodeMap(CodeMap* code_map) {
-  CodeEntry* entry = code_map->FindEntry(start);
-  if (!entry) {
-    // Code objects for builtins should already have been added to the map but
-    // some of them have been filtered out by CpuProfiler.
-    return;
-  }
-  entry->SetBuiltinId(builtin_id);
-}
-
-
-TickSample* CpuProfiler::StartTickSample() {
-  if (is_profiling_) return processor_->StartTickSample();
-  return NULL;
-}
-
-
-void CpuProfiler::FinishTickSample() {
-  processor_->FinishTickSample();
-}
-
-
-TickSample* ProfilerEventsProcessor::StartTickSample() {
-  void* address = ticks_buffer_.StartEnqueue();
-  if (address == NULL) return NULL;
+TickSample* ProfilerEventsProcessor::TickSampleEvent() {
+  generator_->Tick();
   TickSampleEventRecord* evt =
-      new(address) TickSampleEventRecord(last_code_event_id_);
+      new(ticks_buffer_.Enqueue()) TickSampleEventRecord(enqueue_order_);
   return &evt->sample;
 }
 
 
-void ProfilerEventsProcessor::FinishTickSample() {
-  ticks_buffer_.FinishEnqueue();
+bool ProfilerEventsProcessor::FilterOutCodeCreateEvent(
+    Logger::LogEventsAndTags tag) {
+  return FLAG_prof_browser_mode
+      && (tag != Logger::CALLBACK_TAG
+          && tag != Logger::FUNCTION_TAG
+          && tag != Logger::LAZY_COMPILE_TAG
+          && tag != Logger::REG_EXP_TAG
+          && tag != Logger::SCRIPT_TAG);
 }
 
 } }  // namespace v8::internal

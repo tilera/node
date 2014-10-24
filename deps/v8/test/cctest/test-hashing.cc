@@ -44,6 +44,8 @@ using namespace v8::internal;
 
 typedef uint32_t (*HASH_FUNCTION)();
 
+static v8::Persistent<v8::Context> env;
+
 #define __ masm->
 
 
@@ -51,7 +53,7 @@ void generate(MacroAssembler* masm, i::Vector<const uint8_t> string) {
   // GenerateHashInit takes the first character as an argument so it can't
   // handle the zero length string.
   ASSERT(string.length() > 0);
-#if V8_TARGET_ARCH_IA32
+#ifdef V8_TARGET_ARCH_IA32
   __ push(ebx);
   __ push(ecx);
   __ mov(eax, Immediate(0));
@@ -130,7 +132,7 @@ void generate(MacroAssembler* masm, i::Vector<const uint8_t> string) {
 
 
 void generate(MacroAssembler* masm, uint32_t key) {
-#if V8_TARGET_ARCH_IA32
+#ifdef V8_TARGET_ARCH_IA32
   __ push(ebx);
   __ mov(eax, Immediate(key));
   __ GetNumberHash(eax, ebx);
@@ -172,7 +174,7 @@ void generate(MacroAssembler* masm, uint32_t key) {
 
 
 void check(i::Vector<const uint8_t> string) {
-  Isolate* isolate = CcTest::i_isolate();
+  Isolate* isolate = Isolate::Current();
   Factory* factory = isolate->factory();
   HandleScope scope(isolate);
 
@@ -209,12 +211,12 @@ void check(i::Vector<const char> s) {
 
 
 void check(uint32_t key) {
-  Isolate* isolate = CcTest::i_isolate();
+  Isolate* isolate = Isolate::Current();
   Factory* factory = isolate->factory();
   HandleScope scope(isolate);
 
   v8::internal::byte buffer[2048];
-  MacroAssembler masm(CcTest::i_isolate(), buffer, sizeof buffer);
+  MacroAssembler masm(Isolate::Current(), buffer, sizeof buffer);
 
   generate(&masm, key);
 
@@ -251,10 +253,7 @@ static uint32_t PseudoRandom(uint32_t i, uint32_t j) {
 
 
 TEST(StringHash) {
-  v8::Isolate* isolate = CcTest::isolate();
-  v8::HandleScope handle_scope(isolate);
-  v8::Context::Scope context_scope(v8::Context::New(isolate));
-
+  if (env.IsEmpty()) env = v8::Context::New();
   for (uint8_t a = 0; a < String::kMaxOneByteCharCode; a++) {
     // Numbers are hashed differently.
     if (a >= '0' && a <= '9') continue;
@@ -272,9 +271,7 @@ TEST(StringHash) {
 
 
 TEST(NumberHash) {
-  v8::Isolate* isolate = CcTest::isolate();
-  v8::HandleScope handle_scope(isolate);
-  v8::Context::Scope context_scope(v8::Context::New(isolate));
+  if (env.IsEmpty()) env = v8::Context::New();
 
   // Some specific numbers
   for (uint32_t key = 0; key < 42; key += 7) {

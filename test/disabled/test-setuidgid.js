@@ -22,7 +22,7 @@
 
 
 
-// Requires special privileges
+// Requires special privlages
 var common = require('../common');
 var assert = require('assert');
 

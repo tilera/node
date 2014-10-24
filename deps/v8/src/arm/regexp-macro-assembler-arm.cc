@@ -27,9 +27,8 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
-#include "cpu-profiler.h"
 #include "unicode.h"
 #include "log.h"
 #include "code-stubs.h"
@@ -123,7 +122,7 @@ RegExpMacroAssemblerARM::RegExpMacroAssemblerARM(
     int registers_to_save,
     Zone* zone)
     : NativeRegExpMacroAssembler(zone),
-      masm_(new MacroAssembler(zone->isolate(), NULL, kRegExpCodeSize)),
+      masm_(new MacroAssembler(Isolate::Current(), NULL, kRegExpCodeSize)),
       mode_(mode),
       num_registers_(registers_to_save),
       num_saved_registers_(registers_to_save),
@@ -134,6 +133,7 @@ RegExpMacroAssemblerARM::RegExpMacroAssemblerARM(
       exit_label_() {
   ASSERT_EQ(0, registers_to_save % 2);
   __ jmp(&entry_label_);   // We'll write the entry code later.
+  EmitBacktrackConstantPool();
   __ bind(&start_label_);  // And then continue from here.
 }
 
@@ -232,6 +232,54 @@ void RegExpMacroAssemblerARM::CheckNotAtStart(Label* on_not_at_start) {
 void RegExpMacroAssemblerARM::CheckCharacterLT(uc16 limit, Label* on_less) {
   __ cmp(current_character(), Operand(limit));
   BranchOrBacktrack(lt, on_less);
+}
+
+
+void RegExpMacroAssemblerARM::CheckCharacters(Vector<const uc16> str,
+                                              int cp_offset,
+                                              Label* on_failure,
+                                              bool check_end_of_string) {
+  if (on_failure == NULL) {
+    // Instead of inlining a backtrack for each test, (re)use the global
+    // backtrack target.
+    on_failure = &backtrack_label_;
+  }
+
+  if (check_end_of_string) {
+    // Is last character of required match inside string.
+    CheckPosition(cp_offset + str.length() - 1, on_failure);
+  }
+
+  __ add(r0, end_of_input_address(), Operand(current_input_offset()));
+  if (cp_offset != 0) {
+    int byte_offset = cp_offset * char_size();
+    __ add(r0, r0, Operand(byte_offset));
+  }
+
+  // r0 : Address of characters to match against str.
+  int stored_high_byte = 0;
+  for (int i = 0; i < str.length(); i++) {
+    if (mode_ == ASCII) {
+      __ ldrb(r1, MemOperand(r0, char_size(), PostIndex));
+      ASSERT(str[i] <= String::kMaxOneByteCharCode);
+      __ cmp(r1, Operand(str[i]));
+    } else {
+      __ ldrh(r1, MemOperand(r0, char_size(), PostIndex));
+      uc16 match_char = str[i];
+      int match_high_byte = (match_char >> 8);
+      if (match_high_byte == 0) {
+        __ cmp(r1, Operand(str[i]));
+      } else {
+        if (match_high_byte != stored_high_byte) {
+          __ mov(r2, Operand(match_high_byte));
+          stored_high_byte = match_high_byte;
+        }
+        __ add(r3, r2, Operand(match_char & 0xff));
+        __ cmp(r1, r3);
+      }
+    }
+    BranchOrBacktrack(ne, on_failure);
+  }
 }
 
 
@@ -508,7 +556,7 @@ bool RegExpMacroAssemblerARM::CheckSpecialCharacterClass(uc16 type,
   case 'd':
     // Match ASCII digits ('0'..'9')
     __ sub(r0, current_character(), Operand('0'));
-    __ cmp(r0, Operand('9' - '0'));
+    __ cmp(current_character(), Operand('9' - '0'));
     BranchOrBacktrack(hi, on_no_match);
     return true;
   case 'D':
@@ -869,9 +917,10 @@ Handle<HeapObject> RegExpMacroAssemblerARM::GetCode(Handle<String> source) {
 
   CodeDesc code_desc;
   masm_->GetCode(&code_desc);
-  Handle<Code> code = isolate()->factory()->NewCode(
-      code_desc, Code::ComputeFlags(Code::REGEXP), masm_->CodeObject());
-  PROFILE(masm_->isolate(), RegExpCodeCreateEvent(*code, *source));
+  Handle<Code> code = FACTORY->NewCode(code_desc,
+                                       Code::ComputeFlags(Code::REGEXP),
+                                       masm_->CodeObject());
+  PROFILE(Isolate::Current(), RegExpCodeCreateEvent(*code, *source));
   return Handle<HeapObject>::cast(code);
 }
 
@@ -937,8 +986,37 @@ void RegExpMacroAssemblerARM::PopRegister(int register_index) {
 }
 
 
+static bool is_valid_memory_offset(int value) {
+  if (value < 0) value = -value;
+  return value < (1<<12);
+}
+
+
 void RegExpMacroAssemblerARM::PushBacktrack(Label* label) {
-  __ mov_label_offset(r0, label);
+  if (label->is_bound()) {
+    int target = label->pos();
+    __ mov(r0, Operand(target + Code::kHeaderSize - kHeapObjectTag));
+  } else {
+    int constant_offset = GetBacktrackConstantPoolEntry();
+    masm_->label_at_put(label, constant_offset);
+    // Reading pc-relative is based on the address 8 bytes ahead of
+    // the current opcode.
+    unsigned int offset_of_pc_register_read =
+      masm_->pc_offset() + Assembler::kPcLoadDelta;
+    int pc_offset_of_constant =
+      constant_offset - offset_of_pc_register_read;
+    ASSERT(pc_offset_of_constant < 0);
+    if (is_valid_memory_offset(pc_offset_of_constant)) {
+      Assembler::BlockConstPoolScope block_const_pool(masm_);
+      __ ldr(r0, MemOperand(pc, pc_offset_of_constant));
+    } else {
+      // Not a 12-bit offset, so it needs to be loaded from the constant
+      // pool.
+      Assembler::BlockConstPoolScope block_const_pool(masm_);
+      __ mov(r0, Operand(pc_offset_of_constant + Assembler::kInstrSize));
+      __ ldr(r0, MemOperand(pc, r0));
+    }
+  }
   Push(r0);
   CheckStackLimit();
 }
@@ -1025,34 +1103,16 @@ void RegExpMacroAssemblerARM::WriteStackPointerToRegister(int reg) {
 // Private methods:
 
 void RegExpMacroAssemblerARM::CallCheckStackGuardState(Register scratch) {
-  __ PrepareCallCFunction(3, scratch);
-
+  static const int num_arguments = 3;
+  __ PrepareCallCFunction(num_arguments, scratch);
   // RegExp code frame pointer.
   __ mov(r2, frame_pointer());
   // Code* of self.
   __ mov(r1, Operand(masm_->CodeObject()));
-
-  // We need to make room for the return address on the stack.
-  int stack_alignment = OS::ActivationFrameAlignment();
-  ASSERT(IsAligned(stack_alignment, kPointerSize));
-  __ sub(sp, sp, Operand(stack_alignment));
-
-  // r0 will point to the return address, placed by DirectCEntry.
-  __ mov(r0, sp);
-
+  // r0 becomes return address pointer.
   ExternalReference stack_guard_check =
       ExternalReference::re_check_stack_guard_state(isolate());
-  __ mov(ip, Operand(stack_guard_check));
-  DirectCEntryStub stub;
-  stub.GenerateCall(masm_, ip);
-
-  // Drop the return address from the stack.
-  __ add(sp, sp, Operand(stack_alignment));
-
-  ASSERT(stack_alignment != 0);
-  __ ldr(sp, MemOperand(sp, 0));
-
-  __ mov(code_pointer(), Operand(masm_->CodeObject()));
+  CallCFunctionUsingStub(stack_guard_check, num_arguments);
 }
 
 
@@ -1067,6 +1127,7 @@ int RegExpMacroAssemblerARM::CheckStackGuardState(Address* return_address,
                                                   Code* re_code,
                                                   Address re_frame) {
   Isolate* isolate = frame_entry<Isolate*>(re_frame, kIsolate);
+  ASSERT(isolate == Isolate::Current());
   if (isolate->stack_guard()->IsStackOverflow()) {
     isolate->StackOverflow();
     return EXCEPTION;
@@ -1249,6 +1310,53 @@ void RegExpMacroAssemblerARM::CheckStackLimit() {
 }
 
 
+void RegExpMacroAssemblerARM::EmitBacktrackConstantPool() {
+  __ CheckConstPool(false, false);
+  Assembler::BlockConstPoolScope block_const_pool(masm_);
+  backtrack_constant_pool_offset_ = masm_->pc_offset();
+  for (int i = 0; i < kBacktrackConstantPoolSize; i++) {
+    __ emit(0);
+  }
+
+  backtrack_constant_pool_capacity_ = kBacktrackConstantPoolSize;
+}
+
+
+int RegExpMacroAssemblerARM::GetBacktrackConstantPoolEntry() {
+  while (backtrack_constant_pool_capacity_ > 0) {
+    int offset = backtrack_constant_pool_offset_;
+    backtrack_constant_pool_offset_ += kPointerSize;
+    backtrack_constant_pool_capacity_--;
+    if (masm_->pc_offset() - offset < 2 * KB) {
+      return offset;
+    }
+  }
+  Label new_pool_skip;
+  __ jmp(&new_pool_skip);
+  EmitBacktrackConstantPool();
+  __ bind(&new_pool_skip);
+  int offset = backtrack_constant_pool_offset_;
+  backtrack_constant_pool_offset_ += kPointerSize;
+  backtrack_constant_pool_capacity_--;
+  return offset;
+}
+
+
+void RegExpMacroAssemblerARM::CallCFunctionUsingStub(
+    ExternalReference function,
+    int num_arguments) {
+  // Must pass all arguments in registers. The stub pushes on the stack.
+  ASSERT(num_arguments <= 4);
+  __ mov(code_pointer(), Operand(function));
+  RegExpCEntryStub stub;
+  __ CallStub(&stub);
+  if (OS::ActivationFrameAlignment() != 0) {
+    __ ldr(sp, MemOperand(sp, 0));
+  }
+  __ mov(code_pointer(), Operand(masm_->CodeObject()));
+}
+
+
 bool RegExpMacroAssemblerARM::CanReadUnaligned() {
   return CpuFeatures::IsSupported(UNALIGNED_ACCESSES) && !slow_safe();
 }
@@ -1290,6 +1398,17 @@ void RegExpMacroAssemblerARM::LoadCurrentCharacterUnchecked(int cp_offset,
   }
 }
 
+
+void RegExpCEntryStub::Generate(MacroAssembler* masm_) {
+  int stack_alignment = OS::ActivationFrameAlignment();
+  if (stack_alignment < kPointerSize) stack_alignment = kPointerSize;
+  // Stack is already aligned for call, so decrement by alignment
+  // to make room for storing the link register.
+  __ str(lr, MemOperand(sp, stack_alignment, NegPreIndex));
+  __ mov(r0, sp);
+  __ Call(r5);
+  __ ldr(pc, MemOperand(sp, stack_alignment, PostIndex));
+}
 
 #undef __
 

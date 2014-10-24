@@ -26,11 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 {
-  'variables': {
-    'v8_code': 1,
-    'v8_enable_i18n_support%': 1,
-  },
-  'includes': ['../build/toolchain.gypi', '../build/features.gypi'],
+  'includes': ['../build/common.gypi'],
   'target_defaults': {
     'type': 'executable',
     'dependencies': [
@@ -38,19 +34,6 @@
     ],
     'include_dirs': [
       '../include',
-    ],
-    'conditions': [
-      ['v8_enable_i18n_support==1', {
-        'dependencies': [
-          '<(icu_gyp_path):icui18n',
-          '<(icu_gyp_path):icuuc',
-        ],
-      }],
-      ['OS=="win" and v8_enable_i18n_support==1', {
-        'dependencies': [
-          '<(icu_gyp_path):icudata',
-        ],
-      }],
     ],
   },
   'targets': [

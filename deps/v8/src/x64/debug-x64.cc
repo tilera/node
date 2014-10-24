@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_X64
+#if defined(V8_TARGET_ARCH_X64)
 
 #include "assembler.h"
 #include "codegen.h"
@@ -48,10 +48,11 @@ bool BreakLocationIterator::IsDebugBreakAtReturn()  {
 // CodeGenerator::VisitReturnStatement and VirtualFrame::Exit in codegen-x64.cc
 // for the precise return instructions sequence.
 void BreakLocationIterator::SetDebugBreakAtReturn()  {
-  ASSERT(Assembler::kJSReturnSequenceLength >= Assembler::kCallSequenceLength);
+  ASSERT(Assembler::kJSReturnSequenceLength >=
+         Assembler::kCallInstructionLength);
   rinfo()->PatchCodeWithCall(
-      debug_info_->GetIsolate()->debug()->debug_break_return()->entry(),
-      Assembler::kJSReturnSequenceLength - Assembler::kCallSequenceLength);
+      Isolate::Current()->debug()->debug_break_return()->entry(),
+      Assembler::kJSReturnSequenceLength - Assembler::kCallInstructionLength);
 }
 
 
@@ -80,8 +81,8 @@ bool BreakLocationIterator::IsDebugBreakAtSlot() {
 void BreakLocationIterator::SetDebugBreakAtSlot() {
   ASSERT(IsDebugBreakSlot());
   rinfo()->PatchCodeWithCall(
-      debug_info_->GetIsolate()->debug()->debug_break_slot()->entry(),
-      Assembler::kDebugBreakSlotLength - Assembler::kCallSequenceLength);
+      Isolate::Current()->debug()->debug_break_slot()->entry(),
+      Assembler::kDebugBreakSlotLength - Assembler::kCallInstructionLength);
 }
 
 
@@ -123,8 +124,14 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
       if ((object_regs & (1 << r)) != 0) {
         __ push(reg);
       }
+      // Store the 64-bit value as two smis.
       if ((non_object_regs & (1 << r)) != 0) {
-        __ PushInt64AsTwoSmis(reg);
+        __ movq(kScratchRegister, reg);
+        __ Integer32ToSmi(reg, reg);
+        __ push(reg);
+        __ sar(kScratchRegister, Immediate(32));
+        __ Integer32ToSmi(kScratchRegister, kScratchRegister);
+        __ push(kScratchRegister);
       }
     }
 
@@ -149,7 +156,12 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
       }
       // Reconstruct the 64-bit value from two smis.
       if ((non_object_regs & (1 << r)) != 0) {
-        __ PopInt64AsTwoSmis(reg);
+        __ pop(kScratchRegister);
+        __ SmiToInteger32(kScratchRegister, kScratchRegister);
+        __ shl(kScratchRegister, Immediate(32));
+        __ pop(reg);
+        __ SmiToInteger32(reg, reg);
+        __ or_(reg, kScratchRegister);
       }
     }
 

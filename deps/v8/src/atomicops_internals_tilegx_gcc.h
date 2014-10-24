@@ -204,6 +204,7 @@ inline Atomic64 Acquire_CompareAndSwap(volatile Atomic64* ptr,
                                        Atomic64 new_value) {
   ATOMICOPS_COMPILER_BARRIER();
   Atomic64 res = NoBarrier_CompareAndSwap(ptr, old_value, new_value);
+  MemoryBarrier();
   ATOMICOPS_COMPILER_BARRIER();
   return res;
 }
@@ -211,7 +212,11 @@ inline Atomic64 Acquire_CompareAndSwap(volatile Atomic64* ptr,
 inline Atomic64 Release_CompareAndSwap(volatile Atomic64* ptr,
                                        Atomic64 old_value,
                                        Atomic64 new_value) {
+  ATOMICOPS_COMPILER_BARRIER();
+  MemoryBarrier();
   return NoBarrier_CompareAndSwap(ptr, old_value, new_value);
+  ATOMICOPS_COMPILER_BARRIER();
+
 }
 } }  // namespace v8::internal
 

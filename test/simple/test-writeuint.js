@@ -22,6 +22,7 @@
 /*
  * A battery of tests to help us read a series of uints
  */
+var SlowBuffer = process.binding('buffer').SlowBuffer;
 var common = require('../common');
 var ASSERT = require('assert');
 
@@ -143,5 +144,8 @@ function test32(clazz) {
 
 
 test8(Buffer);
+test8(SlowBuffer);
 test16(Buffer);
+test16(SlowBuffer);
 test32(Buffer);
+test32(SlowBuffer);

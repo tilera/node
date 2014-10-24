@@ -39,8 +39,7 @@ function main(conf) {
 
   options = { key: fs.readFileSync(cert_dir + '/test_key.pem'),
               cert: fs.readFileSync(cert_dir + '/test_cert.pem'),
-              ca: [ fs.readFileSync(cert_dir + '/test_ca.pem') ],
-              ciphers: 'AES256-GCM-SHA384' };
+              ca: [ fs.readFileSync(cert_dir + '/test_ca.pem') ] };
 
   server = tls.createServer(options, onConnection);
   setTimeout(done, dur * 1000);

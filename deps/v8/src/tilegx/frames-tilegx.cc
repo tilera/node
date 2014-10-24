@@ -28,19 +28,23 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_TILEGX
+#if defined(V8_TARGET_ARCH_TILEGX)
 
 #include "assembler.h"
 #include "assembler-tilegx.h"
 #include "assembler-tilegx-inl.h"
-#include "frames.h"
+#include "frames-inl.h"
+#include "tilegx/assembler-tilegx-inl.h"
+#include "macro-assembler.h"
+#include "macro-assembler-tilegx.h"
 
 namespace v8 {
 namespace internal {
 
 
-Register JavaScriptFrame::fp_register() { return v8::internal::fp; }
-Register JavaScriptFrame::context_register() { return cp; }
+Address ExitFrame::ComputeStackPointer(Address fp) {
+  return Memory::Address_at(fp + ExitFrameConstants::kSPOffset);
+}
 
 
 Register StubFailureTrampolineFrame::fp_register() { return v8::internal::fp; }

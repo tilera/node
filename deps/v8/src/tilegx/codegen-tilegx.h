@@ -41,14 +41,14 @@ namespace internal {
 
 class CodeGenerator: public AstVisitor {
  public:
-  explicit CodeGenerator(Isolate* isolate) {
-    InitializeAstVisitor(isolate);
+  CodeGenerator() {
+    InitializeAstVisitor();
   }
 
   static bool MakeCode(CompilationInfo* info);
 
   // Printing of AST, etc. as requested by flags.
-  static void MakeCodePrologue(CompilationInfo* info, const char* kind);
+  static void MakeCodePrologue(CompilationInfo* info);
 
   // Allocate and install the code.
   static Handle<Code> MakeCodeEpilogue(MacroAssembler* masm,
@@ -58,7 +58,7 @@ class CodeGenerator: public AstVisitor {
   // Print the code after compiling it.
   static void PrintCode(Handle<Code> code, CompilationInfo* info);
 
-  static bool ShouldGenerateLog(Isolate* isolate, Expression* type);
+  static bool ShouldGenerateLog(Expression* type);
 
   static void SetFunctionInfo(Handle<JSFunction> fun,
                               FunctionLiteral* lit,

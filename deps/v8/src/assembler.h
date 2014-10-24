@@ -134,18 +134,6 @@ class CpuFeatureScope BASE_EMBEDDED {
 };
 
 
-// Enable a unsupported feature within a scope for cross-compiling for a
-// different CPU.
-class PlatformFeatureScope BASE_EMBEDDED {
- public:
-  explicit PlatformFeatureScope(CpuFeature f);
-  ~PlatformFeatureScope();
-
- private:
-  uint64_t old_cross_compile_;
-};
-
-
 // -----------------------------------------------------------------------------
 // Labels represent pc locations; they are typically jump or call targets.
 // After declaration, a label can be freely used to denote known or (yet)
@@ -208,6 +196,7 @@ class Label BASE_EMBEDDED {
   }
 
   friend class Assembler;
+  friend class RegexpAssembler;
   friend class Displacement;
   friend class RegExpMacroAssemblerIrregexp;
 };
@@ -265,7 +254,7 @@ class RelocInfo BASE_EMBEDDED {
     CODE_TARGET_CONTEXT,  // Code target used for contextual loads and stores.
     DEBUG_BREAK,  // Code target for the debugger statement.
     EMBEDDED_OBJECT,
-    CELL,
+    GLOBAL_PROPERTY_CELL,
 
     // Everything after runtime_entry (inclusive) is not GC'ed.
     RUNTIME_ENTRY,
@@ -293,7 +282,7 @@ class RelocInfo BASE_EMBEDDED {
     FIRST_PSEUDO_RELOC_MODE = CODE_AGE_SEQUENCE,
     LAST_PSEUDO_RELOC_MODE = CODE_AGE_SEQUENCE,
     LAST_CODE_ENUM = DEBUG_BREAK,
-    LAST_GCED_ENUM = CELL,
+    LAST_GCED_ENUM = GLOBAL_PROPERTY_CELL,
     // Modes <= LAST_COMPACT_ENUM are guaranteed to have compact encoding.
     LAST_COMPACT_ENUM = CODE_TARGET_WITH_ID,
     LAST_STANDARD_NONCOMPACT_ENUM = INTERNAL_REFERENCE
@@ -397,11 +386,10 @@ class RelocInfo BASE_EMBEDDED {
   INLINE(void set_target_runtime_entry(Address target,
                                        WriteBarrierMode mode =
                                            UPDATE_WRITE_BARRIER));
-  INLINE(Cell* target_cell());
-  INLINE(Handle<Cell> target_cell_handle());
-  INLINE(void set_target_cell(Cell* cell,
+  INLINE(JSGlobalPropertyCell* target_cell());
+  INLINE(Handle<JSGlobalPropertyCell> target_cell_handle());
+  INLINE(void set_target_cell(JSGlobalPropertyCell* cell,
                               WriteBarrierMode mode = UPDATE_WRITE_BARRIER));
-  INLINE(Handle<Object> code_age_stub_handle(Assembler* origin));
   INLINE(Code* code_age_stub());
   INLINE(void set_code_age_stub(Code* stub));
 
@@ -437,7 +425,7 @@ class RelocInfo BASE_EMBEDDED {
   INLINE(Object** call_object_address());
 
   template<typename StaticVisitor> inline void Visit(Heap* heap);
-  inline void Visit(Isolate* isolate, ObjectVisitor* v);
+  inline void Visit(ObjectVisitor* v);
 
   // Patch the code with some other code.
   void PatchCode(byte* instructions, int instruction_count);
@@ -660,21 +648,12 @@ class ExternalReference BASE_EMBEDDED {
     BUILTIN_FP_INT_CALL,
 
     // Direct call to API function callback.
-    // void f(v8::FunctionCallbackInfo&)
+    // Handle<Value> f(v8::Arguments&)
     DIRECT_API_CALL,
 
-    // Call to function callback via InvokeFunctionCallback.
-    // void f(v8::FunctionCallbackInfo&, v8::FunctionCallback)
-    PROFILING_API_CALL,
-
     // Direct call to accessor getter callback.
-    // void f(Local<String> property, PropertyCallbackInfo& info)
-    DIRECT_GETTER_CALL,
-
-    // Call to accessor getter callback via InvokeAccessorGetterCallback.
-    // void f(Local<String> property, PropertyCallbackInfo& info,
-    //     AccessorGetterCallback callback)
-    PROFILING_GETTER_CALL
+    // Handle<value> f(Local<String> property, AccessorInfo& info)
+    DIRECT_GETTER_CALL
   };
 
   static void SetUp();
@@ -682,8 +661,6 @@ class ExternalReference BASE_EMBEDDED {
   static void TearDownMathExpData();
 
   typedef void* ExternalReferenceRedirector(void* original, Type type);
-
-  ExternalReference() : address_(NULL) {}
 
   ExternalReference(Builtins::CFunctionId id, Isolate* isolate);
 
@@ -707,7 +684,7 @@ class ExternalReference BASE_EMBEDDED {
 
   explicit ExternalReference(const SCTableReference& table_ref);
 
-  // Isolate as an external reference.
+  // Isolate::Current() as an external reference.
   static ExternalReference isolate_address(Isolate* isolate);
 
   // One-of-a-kind references. These references are not part of a general
@@ -732,10 +709,6 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference date_cache_stamp(Isolate* isolate);
 
   static ExternalReference get_make_code_young_function(Isolate* isolate);
-  static ExternalReference get_mark_code_as_executed_function(Isolate* isolate);
-
-  // New heap objects tracking support.
-  static ExternalReference record_object_allocation_function(Isolate* isolate);
 
   // Deoptimization support.
   static ExternalReference new_deoptimizer_function(Isolate* isolate);
@@ -751,9 +724,6 @@ class ExternalReference BASE_EMBEDDED {
 
   // Static variable Heap::roots_array_start()
   static ExternalReference roots_array_start(Isolate* isolate);
-
-  // Static variable Heap::allocation_sites_list_address()
-  static ExternalReference allocation_sites_list_address(Isolate* isolate);
 
   // Static variable StackGuard::address_of_jslimit()
   static ExternalReference address_of_stack_limit(Isolate* isolate);
@@ -791,8 +761,6 @@ class ExternalReference BASE_EMBEDDED {
       Isolate* isolate);
   static ExternalReference old_data_space_allocation_limit_address(
       Isolate* isolate);
-  static ExternalReference new_space_high_promotion_mode_active_address(
-      Isolate* isolate);
 
   static ExternalReference double_fp_operation(Token::Value operation,
                                                Isolate* isolate);
@@ -819,7 +787,6 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference address_of_negative_infinity();
   static ExternalReference address_of_canonical_non_hole_nan();
   static ExternalReference address_of_the_hole_nan();
-  static ExternalReference address_of_uint32_bias();
 
   // type conversion emulation functions.
   static ExternalReference cvt_float_to_double(Isolate* isolate);
@@ -839,7 +806,7 @@ class ExternalReference BASE_EMBEDDED {
 
   static ExternalReference cpu_features();
 
-  Address address() const { return reinterpret_cast<Address>(address_); }
+  Address address() const {return reinterpret_cast<Address>(address_);}
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
   // Function Debug::Break()
@@ -874,16 +841,6 @@ class ExternalReference BASE_EMBEDDED {
     ASSERT(isolate->external_reference_redirector() == NULL);
     isolate->set_external_reference_redirector(
         reinterpret_cast<ExternalReferenceRedirectorPointer*>(redirector));
-  }
-
-  static ExternalReference stress_deopt_count(Isolate* isolate);
-
-  bool operator==(const ExternalReference& other) const {
-    return address_ == other.address_;
-  }
-
-  bool operator!=(const ExternalReference& other) const {
-    return !(*this == other);
   }
 
  private:

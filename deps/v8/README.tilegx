@@ -1,0 +1,24 @@
+v8 for tilegx
+
+This 10/23/14 tilegx version of v8 is based on version V8-3.18.5, with fixes pulled in
+from later versions, and some obsolete entry points from old versions added
+back in.  The latter is necessary to support node.js v0.10.29.
+
+Unsupported in this version:
+  crankshaft and deoptimization
+  huge branches (trampoline support is incomplete)
+  LiveEdit stack manipulations 
+
+Current Test failures
+  With some tests modified for longer timeouts, the 18 remaining failures are:
+  3 tests fail because of huge branches in switch statement stress tests
+  12 fail with "Exception: LiveEdit Failure: 
+                Stack manipulations are not supported in this architecture."
+  3 fail because the large page size on tilegx invalidates the test
+
+  See tilegx-v8-reference-testsuite-result.txt .
+
+To build
+  make dependencies
+  make tilegx.release regexp=interpreted snapshot=on 
+

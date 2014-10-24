@@ -83,7 +83,7 @@ if (cluster.isWorker) {
         "cluster: 'exit' event before 'disconnect' event");
   });
 
-  // Check worker events and properties
+  // Check worker eventes and properties
   worker.on('disconnect', function() {
     results.worker_emitDisconnect += 1;
     results.worker_suicideMode = worker.suicide;

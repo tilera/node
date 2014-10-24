@@ -52,8 +52,8 @@ if (process.argv[2] === 'child') {
       needEnd.push(socket);
     }
 
-    socket.on('close', function(had_error) {
-      console.error('[%d] socket.close', id, had_error, m);
+    socket.on('close', function() {
+      console.error('[%d] socket.close', id, m);
     });
 
     socket.on('finish', function() {
@@ -65,7 +65,7 @@ if (process.argv[2] === 'child') {
     if (m !== 'close') return;
     console.error('[%d] got close message', id);
     needEnd.forEach(function(endMe, i) {
-      console.error('[%d] ending %d/%d', id, i, needEnd.length);
+      console.error('[%d] ending %d', id, i);
       endMe.end('end');
     });
   });
@@ -73,7 +73,7 @@ if (process.argv[2] === 'child') {
   process.on('disconnect', function() {
     console.error('[%d] process disconnect, ending', id);
     needEnd.forEach(function(endMe, i) {
-      console.error('[%d] ending %d/%d', id, i, needEnd.length);
+      console.error('[%d] ending %d', id, i);
       endMe.end('end');
     });
   });
@@ -120,11 +120,6 @@ if (process.argv[2] === 'child') {
     var j = count, client;
     while (j--) {
       client = net.connect(common.PORT, '127.0.0.1');
-      client.on('error', function() {
-        // This can happen if we kill the child too early.
-        // The client should still get a close event afterwards.
-        console.error('[m] CLIENT: error event');
-      });
       client.on('close', function() {
         console.error('[m] CLIENT: close event');
         disconnected += 1;
@@ -141,7 +136,6 @@ if (process.argv[2] === 'child') {
     console.error('[m] server close');
     closeEmitted = true;
 
-    console.error('[m] killing child processes');
     child1.kill();
     child2.kill();
     child3.kill();
@@ -167,14 +161,14 @@ if (process.argv[2] === 'child') {
       child1.send('close');
       child2.send('close');
       child3.disconnect();
-    }, 200);
+    }, 5000);
   };
 
   process.on('exit', function() {
     assert.equal(disconnected, count);
     assert.equal(connected, count);
     assert.ok(closeEmitted);
-    assert.ok(timeElasped >= 190 && timeElasped <= 1000,
-              'timeElasped was not between 190 and 1000 ms');
+    assert.ok(timeElasped >= 190 && timeElasped <= 6000,
+              'timeElasped was not between 190 and 6000 ms');
   });
 }

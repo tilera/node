@@ -33,7 +33,8 @@ switch (process.argv[2]) {
 
 function parent() {
   var http = require('http');
-  var bigResponse = new Buffer(10240).fill('x');
+  var bigResponse = new Buffer(10240)
+  bigResponse.fill('x');
   var gotTimeout = false;
   var childClosed = false;
   var requests = 0;
@@ -51,7 +52,7 @@ function parent() {
 
   // kill the connection after a bit, verifying that the
   // flood of requests was eventually halted.
-  server.setTimeout(200, function(conn) {
+  server.setTimeout(2000, function(conn) {
     gotTimeout = true;
     conn.destroy();
   });

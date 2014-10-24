@@ -31,12 +31,12 @@ var e = new events.EventEmitter();
 var d = domain.create();
 d.add(e);
 d.on('error', function (er) {
-  assert(er instanceof Error, 'error created');
+  assert(er instanceof TypeError, 'type error created');
   errorCatched = true;
 });
 
 e.emit('error');
 
 process.on('exit', function () {
-  assert(errorCatched, 'error got caught');
+  assert(errorCatched, 'error got catched');
 });

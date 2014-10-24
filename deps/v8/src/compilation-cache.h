@@ -99,7 +99,6 @@ class CompilationCacheScript : public CompilationSubCache {
                                     Handle<Object> name,
                                     int line_offset,
                                     int column_offset,
-                                    bool is_shared_cross_origin,
                                     Handle<Context> context);
   void Put(Handle<String> source,
            Handle<Context> context,
@@ -120,8 +119,7 @@ class CompilationCacheScript : public CompilationSubCache {
   bool HasOrigin(Handle<SharedFunctionInfo> function_info,
                  Handle<Object> name,
                  int line_offset,
-                 int column_offset,
-                 bool is_shared_cross_origin);
+                 int column_offset);
 
   void* script_histogram_;
   bool script_histogram_initialized_;
@@ -214,7 +212,6 @@ class CompilationCache {
                                           Handle<Object> name,
                                           int line_offset,
                                           int column_offset,
-                                          bool is_shared_cross_origin,
                                           Handle<Context> context);
 
   // Finds the shared function info for a source string for eval in a

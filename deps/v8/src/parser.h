@@ -170,8 +170,7 @@ class PreParserApi {
   // This interface is here instead of in preparser.h because it instantiates a
   // preparser recorder object that is suited to the parser's purposes.  Also,
   // the preparser doesn't know about ScriptDataImpl.
-  static ScriptDataImpl* PreParse(Isolate* isolate,
-                                  Utf16CharacterStream* source);
+  static ScriptDataImpl* PreParse(Utf16CharacterStream* source);
 };
 
 
@@ -270,8 +269,7 @@ class RegExpBuilder: public ZoneObject {
   void AddAtom(RegExpTree* tree);
   void AddAssertion(RegExpTree* tree);
   void NewAlternative();  // '|'
-  void AddQuantifierToAtom(
-      int min, int max, RegExpQuantifier::QuantifierType type);
+  void AddQuantifierToAtom(int min, int max, RegExpQuantifier::Type type);
   RegExpTree* ToRegExp();
 
  private:
@@ -425,7 +423,7 @@ class RegExpParser BASE_EMBEDDED {
 // Forward declaration.
 class SingletonLogger;
 
-class Parser : public ParserBase {
+class Parser BASE_EMBEDDED {
  public:
   explicit Parser(CompilationInfo* info);
   ~Parser() {
@@ -433,11 +431,35 @@ class Parser : public ParserBase {
     reusable_preparser_ = NULL;
   }
 
+  bool allow_natives_syntax() const { return allow_natives_syntax_; }
+  bool allow_lazy() const { return allow_lazy_; }
+  bool allow_modules() { return scanner().HarmonyModules(); }
+  bool allow_harmony_scoping() { return scanner().HarmonyScoping(); }
+  bool allow_generators() const { return allow_generators_; }
+
+  void set_allow_natives_syntax(bool allow) { allow_natives_syntax_ = allow; }
+  void set_allow_lazy(bool allow) { allow_lazy_ = allow; }
+  void set_allow_modules(bool allow) { scanner().SetHarmonyModules(allow); }
+  void set_allow_harmony_scoping(bool allow) {
+    scanner().SetHarmonyScoping(allow);
+  }
+  void set_allow_generators(bool allow) { allow_generators_ = allow; }
+
   // Parses the source code represented by the compilation info and sets its
   // function literal.  Returns false (and deallocates any allocated AST
   // nodes) if parsing failed.
   static bool Parse(CompilationInfo* info) { return Parser(info).Parse(); }
   bool Parse();
+
+  // Returns NULL if parsing failed.
+  FunctionLiteral* ParseProgram();
+
+  void ReportMessageAt(Scanner::Location loc,
+                       const char* message,
+                       Vector<const char*> args);
+  void ReportMessageAt(Scanner::Location loc,
+                       const char* message,
+                       Vector<Handle<String> > args);
 
  private:
   static const int kMaxNumFunctionLocals = 131071;  // 2^17-1
@@ -479,6 +501,20 @@ class Parser : public ParserBase {
     int NextHandlerIndex() { return next_handler_index_++; }
     int handler_count() { return next_handler_index_; }
 
+    void SetThisPropertyAssignmentInfo(
+        bool only_simple_this_property_assignments,
+        Handle<FixedArray> this_property_assignments) {
+      only_simple_this_property_assignments_ =
+          only_simple_this_property_assignments;
+      this_property_assignments_ = this_property_assignments;
+    }
+    bool only_simple_this_property_assignments() {
+      return only_simple_this_property_assignments_;
+    }
+    Handle<FixedArray> this_property_assignments() {
+      return this_property_assignments_;
+    }
+
     void AddProperty() { expected_property_count_++; }
     int expected_property_count() { return expected_property_count_; }
 
@@ -508,6 +544,11 @@ class Parser : public ParserBase {
     // Properties count estimation.
     int expected_property_count_;
 
+    // Keeps track of assignments to properties of this. Used for
+    // optimizing constructors.
+    bool only_simple_this_property_assignments_;
+    Handle<FixedArray> this_property_assignments_;
+
     // For generators, the variable that holds the generator object.  This
     // variable is used by yield expressions and return statements.  NULL
     // indicates that this function is not a generator.
@@ -536,11 +577,9 @@ class Parser : public ParserBase {
     Mode old_mode_;
   };
 
-  // Returns NULL if parsing failed.
-  FunctionLiteral* ParseProgram();
-
   FunctionLiteral* ParseLazy();
-  FunctionLiteral* ParseLazy(Utf16CharacterStream* source);
+  FunctionLiteral* ParseLazy(Utf16CharacterStream* source,
+                             ZoneScope* zone_scope);
 
   Isolate* isolate() { return isolate_; }
   Zone* zone() const { return zone_; }
@@ -548,22 +587,14 @@ class Parser : public ParserBase {
 
   // Called by ParseProgram after setting up the scanner.
   FunctionLiteral* DoParseProgram(CompilationInfo* info,
-                                  Handle<String> source);
+                                  Handle<String> source,
+                                  ZoneScope* zone_scope);
 
   // Report syntax error
   void ReportUnexpectedToken(Token::Value token);
   void ReportInvalidPreparseData(Handle<String> name, bool* ok);
   void ReportMessage(const char* message, Vector<const char*> args);
   void ReportMessage(const char* message, Vector<Handle<String> > args);
-  void ReportMessageAt(Scanner::Location location, const char* type) {
-    ReportMessageAt(location, type, Vector<const char*>::empty());
-  }
-  void ReportMessageAt(Scanner::Location loc,
-                       const char* message,
-                       Vector<const char*> args);
-  void ReportMessageAt(Scanner::Location loc,
-                       const char* message,
-                       Vector<Handle<String> > args);
 
   void set_pre_parse_data(ScriptDataImpl *data) {
     pre_parse_data_ = data;
@@ -651,6 +682,7 @@ class Parser : public ParserBase {
   Expression* ParsePrimaryExpression(bool* ok);
   Expression* ParseArrayLiteral(bool* ok);
   Expression* ParseObjectLiteral(bool* ok);
+  ObjectLiteral::Property* ParseObjectLiteralGetSet(bool is_getter, bool* ok);
   Expression* ParseRegExpLiteral(bool seen_equal, bool* ok);
 
   // Populate the constant properties fixed array for a materialized object
@@ -660,8 +692,13 @@ class Parser : public ParserBase {
       Handle<FixedArray> constants,
       bool* is_simple,
       bool* fast_elements,
-      int* depth,
-      bool* may_store_doubles);
+      int* depth);
+
+  // Populate the literals fixed array for a materialized array literal.
+  void BuildArrayLiteralBoilerplateLiterals(ZoneList<Expression*>* properties,
+                                            Handle<FixedArray> constants,
+                                            bool* is_simple,
+                                            int* depth);
 
   // Decide if a property should be in the object boilerplate.
   bool IsBoilerplateProperty(ObjectLiteral::Property* property);
@@ -672,27 +709,48 @@ class Parser : public ParserBase {
   // in the object literal boilerplate.
   Handle<Object> GetBoilerplateValue(Expression* expression);
 
-  // Initialize the components of a for-in / for-of statement.
-  void InitializeForEachStatement(ForEachStatement* stmt,
-                                  Expression* each,
-                                  Expression* subject,
-                                  Statement* body);
-
   ZoneList<Expression*>* ParseArguments(bool* ok);
   FunctionLiteral* ParseFunctionLiteral(Handle<String> var_name,
                                         bool name_is_reserved,
                                         bool is_generator,
                                         int function_token_position,
-                                        FunctionLiteral::FunctionType type,
+                                        FunctionLiteral::Type type,
                                         bool* ok);
 
 
   // Magical syntax support.
   Expression* ParseV8Intrinsic(bool* ok);
 
+  INLINE(Token::Value peek()) {
+    if (stack_overflow_) return Token::ILLEGAL;
+    return scanner().peek();
+  }
+
+  INLINE(Token::Value Next()) {
+    // BUG 1215673: Find a thread safe way to set a stack limit in
+    // pre-parse mode. Otherwise, we cannot safely pre-parse from other
+    // threads.
+    if (stack_overflow_) {
+      return Token::ILLEGAL;
+    }
+    if (StackLimitCheck(isolate()).HasOverflowed()) {
+      // Any further calls to Next or peek will return the illegal token.
+      // The current call must return the next token, which might already
+      // have been peek'ed.
+      stack_overflow_ = true;
+    }
+    return scanner().Next();
+  }
+
   bool is_generator() const { return current_function_state_->is_generator(); }
 
-  bool CheckInOrOf(bool accept_OF, ForEachStatement::VisitMode* visit_mode);
+  bool peek_any_identifier();
+
+  INLINE(void Consume(Token::Value token));
+  void Expect(Token::Value token, bool* ok);
+  bool Check(Token::Value token);
+  void ExpectSemicolon(bool* ok);
+  void ExpectContextualKeyword(const char* keyword, bool* ok);
 
   Handle<String> LiteralString(PretenureFlag tenured) {
     if (scanner().is_literal_ascii()) {
@@ -714,11 +772,11 @@ class Parser : public ParserBase {
     }
   }
 
-  Handle<String> GetSymbol();
+  Handle<String> GetSymbol(bool* ok);
 
   // Get odd-ball literals.
-  Literal* GetLiteralUndefined(int position);
-  Literal* GetLiteralTheHole(int position);
+  Literal* GetLiteralUndefined();
+  Literal* GetLiteralTheHole();
 
   Handle<String> ParseIdentifier(bool* ok);
   Handle<String> ParseIdentifierOrStrictReservedWord(
@@ -737,6 +795,9 @@ class Parser : public ParserBase {
   void CheckStrictModeLValue(Expression* expression,
                              const char* error,
                              bool* ok);
+
+  // Strict mode octal literal validation.
+  void CheckOctalLiteral(int beg_pos, int end_pos, bool* ok);
 
   // For harmony block scoping mode: Check if the scope has conflicting var/let
   // declarations from different scopes. It covers for example
@@ -788,7 +849,7 @@ class Parser : public ParserBase {
                             Handle<String> type,
                             Vector< Handle<Object> > arguments);
 
-  PreParser::PreParseResult LazyParseFunctionLiteral(
+  preparser::PreParser::PreParseResult LazyParseFunctionLiteral(
        SingletonLogger* logger);
 
   AstNodeFactory<AstConstructionVisitor>* factory() {
@@ -800,9 +861,8 @@ class Parser : public ParserBase {
 
   Handle<Script> script_;
   Scanner scanner_;
-  PreParser* reusable_preparser_;
+  preparser::PreParser* reusable_preparser_;
   Scope* top_scope_;
-  Scope* original_scope_;  // for ES5 function declarations in sloppy eval
   FunctionState* current_function_state_;
   Target* target_stack_;  // for break, continue statements
   v8::Extension* extension_;
@@ -810,6 +870,10 @@ class Parser : public ParserBase {
   FuncNameInferrer* fni_;
 
   Mode mode_;
+  bool allow_natives_syntax_;
+  bool allow_lazy_;
+  bool allow_generators_;
+  bool stack_overflow_;
   // If true, the next (and immediately following) function literal is
   // preceded by a parenthesis.
   // Heuristically that means that the function will be called immediately,
@@ -827,7 +891,7 @@ class Parser : public ParserBase {
 // can be fully handled at compile time.
 class CompileTimeValue: public AllStatic {
  public:
-  enum LiteralType {
+  enum Type {
     OBJECT_LITERAL_FAST_ELEMENTS,
     OBJECT_LITERAL_SLOW_ELEMENTS,
     ARRAY_LITERAL
@@ -835,17 +899,19 @@ class CompileTimeValue: public AllStatic {
 
   static bool IsCompileTimeValue(Expression* expression);
 
+  static bool ArrayLiteralElementNeedsInitialization(Expression* value);
+
   // Get the value as a compile time value.
-  static Handle<FixedArray> GetValue(Isolate* isolate, Expression* expression);
+  static Handle<FixedArray> GetValue(Expression* expression);
 
   // Get the type of a compile time value returned by GetValue().
-  static LiteralType GetLiteralType(Handle<FixedArray> value);
+  static Type GetType(Handle<FixedArray> value);
 
   // Get the elements array of a compile time value returned by GetValue().
   static Handle<FixedArray> GetElements(Handle<FixedArray> value);
 
  private:
-  static const int kLiteralTypeSlot = 0;
+  static const int kTypeSlot = 0;
   static const int kElementsSlot = 1;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(CompileTimeValue);

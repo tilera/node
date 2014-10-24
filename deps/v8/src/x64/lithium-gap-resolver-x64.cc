@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_X64
+#if defined(V8_TARGET_ARCH_X64)
 
 #include "x64/lithium-gap-resolver-x64.h"
 #include "x64/lithium-codegen-x64.h"
@@ -200,17 +200,7 @@ void LGapResolver::EmitMove(int index) {
       } else if (cgen_->IsInteger32Constant(constant_source)) {
         __ movl(dst, Immediate(cgen_->ToInteger32(constant_source)));
       } else {
-        __ Move(dst, cgen_->ToHandle(constant_source));
-      }
-    } else if (destination->IsDoubleRegister()) {
-      double v = cgen_->ToDouble(constant_source);
-      uint64_t int_val = BitCast<uint64_t, double>(v);
-      XMMRegister dst = cgen_->ToDoubleRegister(destination);
-      if (int_val == 0) {
-        __ xorps(dst, dst);
-      } else {
-        __ movq(kScratchRegister, int_val, RelocInfo::NONE64);
-        __ movq(dst, kScratchRegister);
+        __ LoadObject(dst, cgen_->ToHandle(constant_source));
       }
     } else {
       ASSERT(destination->IsStackSlot());
@@ -222,7 +212,7 @@ void LGapResolver::EmitMove(int index) {
         // value.
         __ movq(dst, Immediate(cgen_->ToInteger32(constant_source)));
       } else {
-        __ Move(kScratchRegister, cgen_->ToHandle(constant_source));
+        __ LoadObject(kScratchRegister, cgen_->ToHandle(constant_source));
         __ movq(dst, kScratchRegister);
       }
     }
@@ -262,7 +252,7 @@ void LGapResolver::EmitSwap(int index) {
     // Swap two general-purpose registers.
     Register src = cgen_->ToRegister(source);
     Register dst = cgen_->ToRegister(destination);
-    __ xchgq(dst, src);
+    __ xchg(dst, src);
 
   } else if ((source->IsRegister() && destination->IsStackSlot()) ||
              (source->IsStackSlot() && destination->IsRegister())) {

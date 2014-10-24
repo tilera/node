@@ -27,6 +27,17 @@
 
 // Flags: --allow-natives-syntax --expose-gc
 
+/**
+ * The possible optimization states of a function. Must be in sync with the
+ * return values of Runtime_GetOptimizationStatus() in runtime.cc!
+ */
+var OptimizationState = {
+    YES: 1,
+    NO: 2,
+    ALWAYS: 3,
+    NEVER: 4
+};
+
 function mul (a, b) {
   return a * b;
 }
@@ -39,5 +50,7 @@ mul(0, -1);
 %OptimizeFunctionOnNextCall(mul);
 mul(0, -1);
 
-assertOptimized(mul);
+var raw_optimized = %GetOptimizationStatus(mul);
+assertFalse(raw_optimized == OptimizationState.NO);
 gc();
+

@@ -123,7 +123,6 @@ void TraceGVN(const char* msg, ...) {
   va_end(arguments);
 }
 
-
 // Wrap TraceGVN in macros to avoid the expense of evaluating its arguments when
 // --trace-gvn is off.
 #define TRACE_GVN_1(msg, a1)                    \
@@ -340,7 +339,6 @@ HSideEffectMap& HSideEffectMap::operator= (const HSideEffectMap& other) {
   return *this;
 }
 
-
 void HSideEffectMap::Kill(GVNFlagSet flags) {
   for (int i = 0; i < kNumberOfTrackedSideEffects; i++) {
     GVNFlag changes_flag = HValue::ChangesFlagFromInt(i);
@@ -363,60 +361,69 @@ void HSideEffectMap::Store(GVNFlagSet flags, HInstruction* instr) {
 }
 
 
-HGlobalValueNumberingPhase::HGlobalValueNumberingPhase(HGraph* graph)
-      : HPhase("H_Global value numbering", graph),
+HGlobalValueNumberer::HGlobalValueNumberer(HGraph* graph, CompilationInfo* info)
+      : graph_(graph),
+        info_(info),
         removed_side_effects_(false),
-        block_side_effects_(graph->blocks()->length(), zone()),
-        loop_side_effects_(graph->blocks()->length(), zone()),
-        visited_on_paths_(graph->blocks()->length(), zone()) {
-    ASSERT(!AllowHandleAllocation::IsAllowed());
-    block_side_effects_.AddBlock(GVNFlagSet(), graph->blocks()->length(),
-                                 zone());
-    loop_side_effects_.AddBlock(GVNFlagSet(), graph->blocks()->length(),
-                                zone());
+        block_side_effects_(graph->blocks()->length(), graph->zone()),
+        loop_side_effects_(graph->blocks()->length(), graph->zone()),
+        visited_on_paths_(graph->zone(), graph->blocks()->length()) {
+#ifdef DEBUG
+    ASSERT(info->isolate()->optimizing_compiler_thread()->IsOptimizerThread() ||
+           !info->isolate()->heap()->IsAllocationAllowed());
+#endif
+    block_side_effects_.AddBlock(GVNFlagSet(), graph_->blocks()->length(),
+                                 graph_->zone());
+    loop_side_effects_.AddBlock(GVNFlagSet(), graph_->blocks()->length(),
+                                graph_->zone());
   }
 
-void HGlobalValueNumberingPhase::Analyze() {
+bool HGlobalValueNumberer::Analyze() {
   removed_side_effects_ = false;
   ComputeBlockSideEffects();
   if (FLAG_loop_invariant_code_motion) {
     LoopInvariantCodeMotion();
   }
   AnalyzeGraph();
+  return removed_side_effects_;
 }
 
 
-void HGlobalValueNumberingPhase::ComputeBlockSideEffects() {
+void HGlobalValueNumberer::ComputeBlockSideEffects() {
   // The Analyze phase of GVN can be called multiple times. Clear loop side
   // effects before computing them to erase the contents from previous Analyze
   // passes.
   for (int i = 0; i < loop_side_effects_.length(); ++i) {
     loop_side_effects_[i].RemoveAll();
   }
-  for (int i = graph()->blocks()->length() - 1; i >= 0; --i) {
+  for (int i = graph_->blocks()->length() - 1; i >= 0; --i) {
     // Compute side effects for the block.
-    HBasicBlock* block = graph()->blocks()->at(i);
+    HBasicBlock* block = graph_->blocks()->at(i);
+    HInstruction* instr = block->first();
+    int id = block->block_id();
     GVNFlagSet side_effects;
-    if (block->IsReachable() && !block->IsDeoptimizing()) {
-      int id = block->block_id();
-      for (HInstructionIterator it(block); !it.Done(); it.Advance()) {
-        HInstruction* instr = it.Current();
-        side_effects.Add(instr->ChangesFlags());
+    while (instr != NULL) {
+      side_effects.Add(instr->ChangesFlags());
+      if (instr->IsSoftDeoptimize()) {
+        block_side_effects_[id].RemoveAll();
+        side_effects.RemoveAll();
+        break;
       }
-      block_side_effects_[id].Add(side_effects);
+      instr = instr->next();
+    }
+    block_side_effects_[id].Add(side_effects);
 
-      // Loop headers are part of their loop.
-      if (block->IsLoopHeader()) {
-        loop_side_effects_[id].Add(side_effects);
-      }
+    // Loop headers are part of their loop.
+    if (block->IsLoopHeader()) {
+      loop_side_effects_[id].Add(side_effects);
+    }
 
-      // Propagate loop side effects upwards.
-      if (block->HasParentLoopHeader()) {
-        int header_id = block->parent_loop_header()->block_id();
-        loop_side_effects_[header_id].Add(block->IsLoopHeader()
-                                          ? loop_side_effects_[id]
-                                          : side_effects);
-      }
+    // Propagate loop side effects upwards.
+    if (block->HasParentLoopHeader()) {
+      int header_id = block->parent_loop_header()->block_id();
+      loop_side_effects_[header_id].Add(block->IsLoopHeader()
+                                        ? loop_side_effects_[id]
+                                        : side_effects);
     }
   }
 }
@@ -508,11 +515,11 @@ GVN_UNTRACKED_FLAG_LIST(DECLARE_FLAG)
 }
 
 
-void HGlobalValueNumberingPhase::LoopInvariantCodeMotion() {
+void HGlobalValueNumberer::LoopInvariantCodeMotion() {
   TRACE_GVN_1("Using optimistic loop invariant code motion: %s\n",
-              graph()->use_optimistic_licm() ? "yes" : "no");
-  for (int i = graph()->blocks()->length() - 1; i >= 0; --i) {
-    HBasicBlock* block = graph()->blocks()->at(i);
+              graph_->use_optimistic_licm() ? "yes" : "no");
+  for (int i = graph_->blocks()->length() - 1; i >= 0; --i) {
+    HBasicBlock* block = graph_->blocks()->at(i);
     if (block->IsLoopHeader()) {
       GVNFlagSet side_effects = loop_side_effects_[block->block_id()];
       TRACE_GVN_2("Try loop invariant motion for block B%d %s\n",
@@ -523,7 +530,7 @@ void HGlobalValueNumberingPhase::LoopInvariantCodeMotion() {
       GVNFlagSet accumulated_first_time_changes;
       HBasicBlock* last = block->loop_information()->GetLastBackEdge();
       for (int j = block->block_id(); j <= last->block_id(); ++j) {
-        ProcessLoopBlock(graph()->blocks()->at(j), block, side_effects,
+        ProcessLoopBlock(graph_->blocks()->at(j), block, side_effects,
                          &accumulated_first_time_depends,
                          &accumulated_first_time_changes);
       }
@@ -532,7 +539,7 @@ void HGlobalValueNumberingPhase::LoopInvariantCodeMotion() {
 }
 
 
-void HGlobalValueNumberingPhase::ProcessLoopBlock(
+void HGlobalValueNumberer::ProcessLoopBlock(
     HBasicBlock* block,
     HBasicBlock* loop_header,
     GVNFlagSet loop_kills,
@@ -597,30 +604,27 @@ void HGlobalValueNumberingPhase::ProcessLoopBlock(
 }
 
 
-bool HGlobalValueNumberingPhase::AllowCodeMotion() {
+bool HGlobalValueNumberer::AllowCodeMotion() {
   return info()->IsStub() || info()->opt_count() + 1 < FLAG_max_opt_count;
 }
 
 
-bool HGlobalValueNumberingPhase::ShouldMove(HInstruction* instr,
-                                            HBasicBlock* loop_header) {
+bool HGlobalValueNumberer::ShouldMove(HInstruction* instr,
+                                      HBasicBlock* loop_header) {
   // If we've disabled code motion or we're in a block that unconditionally
   // deoptimizes, don't move any instructions.
-  return AllowCodeMotion() && !instr->block()->IsDeoptimizing() &&
-      instr->block()->IsReachable();
+  return AllowCodeMotion() && !instr->block()->IsDeoptimizing();
 }
 
 
-GVNFlagSet
-HGlobalValueNumberingPhase::CollectSideEffectsOnPathsToDominatedBlock(
+GVNFlagSet HGlobalValueNumberer::CollectSideEffectsOnPathsToDominatedBlock(
     HBasicBlock* dominator, HBasicBlock* dominated) {
   GVNFlagSet side_effects;
   for (int i = 0; i < dominated->predecessors()->length(); ++i) {
     HBasicBlock* block = dominated->predecessors()->at(i);
     if (dominator->block_id() < block->block_id() &&
         block->block_id() < dominated->block_id() &&
-        !visited_on_paths_.Contains(block->block_id())) {
-      visited_on_paths_.Add(block->block_id());
+        visited_on_paths_.Add(block->block_id())) {
       side_effects.Add(block_side_effects_[block->block_id()]);
       if (block->IsLoopHeader()) {
         side_effects.Add(loop_side_effects_[block->block_id()]);
@@ -710,18 +714,22 @@ class GvnBasicBlockState: public ZoneObject {
                  zone);
       return this;
     } else if (dominated_index_ < length_) {
-      return push(zone, block_->dominated_blocks()->at(dominated_index_));
+      return push(zone,
+                  block_->dominated_blocks()->at(dominated_index_),
+                  dominators());
     } else {
       return NULL;
     }
   }
 
-  GvnBasicBlockState* push(Zone* zone, HBasicBlock* block) {
+  GvnBasicBlockState* push(Zone* zone,
+                           HBasicBlock* block,
+                           HSideEffectMap* dominators) {
     if (next_ == NULL) {
       next_ =
-          new(zone) GvnBasicBlockState(this, block, map(), dominators(), zone);
+          new(zone) GvnBasicBlockState(this, block, map(), dominators, zone);
     } else {
-      next_->Initialize(block, map(), dominators(), true, zone);
+      next_->Initialize(block, map(), dominators, true, zone);
     }
     return next_;
   }
@@ -745,13 +753,12 @@ class GvnBasicBlockState: public ZoneObject {
   int length_;
 };
 
-
 // This is a recursive traversal of the dominator tree but it has been turned
 // into a loop to avoid stack overflows.
 // The logical "stack frames" of the recursion are kept in a list of
 // GvnBasicBlockState instances.
-void HGlobalValueNumberingPhase::AnalyzeGraph() {
-  HBasicBlock* entry_block = graph()->entry_block();
+void HGlobalValueNumberer::AnalyzeGraph() {
+  HBasicBlock* entry_block = graph_->entry_block();
   HValueMap* entry_map = new(zone()) HValueMap(zone());
   GvnBasicBlockState* current =
       GvnBasicBlockState::CreateEntry(zone(), entry_block, entry_map);
@@ -768,32 +775,12 @@ void HGlobalValueNumberingPhase::AnalyzeGraph() {
     // If this is a loop header kill everything killed by the loop.
     if (block->IsLoopHeader()) {
       map->Kill(loop_side_effects_[block->block_id()]);
-      dominators->Kill(loop_side_effects_[block->block_id()]);
     }
 
     // Go through all instructions of the current block.
-    for (HInstructionIterator it(block); !it.Done(); it.Advance()) {
-      HInstruction* instr = it.Current();
-      if (instr->CheckFlag(HValue::kTrackSideEffectDominators)) {
-        for (int i = 0; i < kNumberOfTrackedSideEffects; i++) {
-          HValue* other = dominators->at(i);
-          GVNFlag changes_flag = HValue::ChangesFlagFromInt(i);
-          GVNFlag depends_on_flag = HValue::DependsOnFlagFromInt(i);
-          if (instr->DependsOnFlags().Contains(depends_on_flag) &&
-              (other != NULL)) {
-            TRACE_GVN_5("Side-effect #%d in %d (%s) is dominated by %d (%s)\n",
-                        i,
-                        instr->id(),
-                        instr->Mnemonic(),
-                        other->id(),
-                        other->Mnemonic());
-            instr->HandleSideEffectDominator(changes_flag, other);
-          }
-        }
-      }
-      // Instruction was unlinked during graph traversal.
-      if (!instr->IsLinked()) continue;
-
+    HInstruction* instr = block->first();
+    while (instr != NULL) {
+      HInstruction* next = instr->next();
       GVNFlagSet flags = instr->ChangesFlags();
       if (!flags.IsEmpty()) {
         // Clear all instructions in the map that are affected by side effects.
@@ -819,12 +806,30 @@ void HGlobalValueNumberingPhase::AnalyzeGraph() {
           map->Add(instr, zone());
         }
       }
+      if (instr->IsLinked() &&
+          instr->CheckFlag(HValue::kTrackSideEffectDominators)) {
+        for (int i = 0; i < kNumberOfTrackedSideEffects; i++) {
+          HValue* other = dominators->at(i);
+          GVNFlag changes_flag = HValue::ChangesFlagFromInt(i);
+          GVNFlag depends_on_flag = HValue::DependsOnFlagFromInt(i);
+          if (instr->DependsOnFlags().Contains(depends_on_flag) &&
+              (other != NULL)) {
+            TRACE_GVN_5("Side-effect #%d in %d (%s) is dominated by %d (%s)\n",
+                        i,
+                        instr->id(),
+                        instr->Mnemonic(),
+                        other->id(),
+                        other->Mnemonic());
+            instr->SetSideEffectDominator(changes_flag, other);
+          }
+        }
+      }
+      instr = next;
     }
 
     HBasicBlock* dominator_block;
     GvnBasicBlockState* next =
-        current->next_in_dominator_tree_traversal(zone(),
-                                                  &dominator_block);
+        current->next_in_dominator_tree_traversal(zone(), &dominator_block);
 
     if (next != NULL) {
       HBasicBlock* dominated = next->block();

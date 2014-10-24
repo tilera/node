@@ -37,20 +37,20 @@ var headers = {'content-type': 'text/plain',
                 'hello': 'world' };
 
 var backend = http.createServer(function(req, res) {
-  console.error('backend request');
+  common.debug('backend request');
   res.writeHead(200, headers);
   res.write('hello world\n');
   res.end();
 });
 
 var proxy = http.createServer(function(req, res) {
-  console.error('proxy req headers: ' + JSON.stringify(req.headers));
+  common.debug('proxy req headers: ' + JSON.stringify(req.headers));
   var proxy_req = http.get({
     port: BACKEND_PORT,
     path: url.parse(req.url).pathname
   }, function(proxy_res) {
 
-    console.error('proxy res headers: ' + JSON.stringify(proxy_res.headers));
+    common.debug('proxy res headers: ' + JSON.stringify(proxy_res.headers));
 
     assert.equal('world', proxy_res.headers['hello']);
     assert.equal('text/plain', proxy_res.headers['content-type']);
@@ -64,7 +64,7 @@ var proxy = http.createServer(function(req, res) {
 
     proxy_res.on('end', function() {
       res.end();
-      console.error('proxy res');
+      common.debug('proxy res');
     });
   });
 });
@@ -80,7 +80,7 @@ function startReq() {
     port: PROXY_PORT,
     path: '/test'
   }, function(res) {
-    console.error('got res');
+    common.debug('got res');
     assert.equal(200, res.statusCode);
 
     assert.equal('world', res.headers['hello']);
@@ -92,16 +92,16 @@ function startReq() {
     res.on('end', function() {
       proxy.close();
       backend.close();
-      console.error('closed both');
+      common.debug('closed both');
     });
   });
-  console.error('client req');
+  common.debug('client req');
 }
 
-console.error('listen proxy');
+common.debug('listen proxy');
 proxy.listen(PROXY_PORT, startReq);
 
-console.error('listen backend');
+common.debug('listen backend');
 backend.listen(BACKEND_PORT, startReq);
 
 process.on('exit', function() {

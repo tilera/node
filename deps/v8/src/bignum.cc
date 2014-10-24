@@ -45,7 +45,6 @@ static int BitSize(S value) {
   return 8 * sizeof(value);
 }
 
-
 // Guaranteed to lie in one Bigit.
 void Bignum::AssignUInt16(uint16_t value) {
   ASSERT(kBigitSize >= BitSize(value));

@@ -375,19 +375,3 @@ test('finish does not come before write cb', function(t) {
   w.write(Buffer(0));
   w.end();
 });
-
-test('finish does not come before sync _write cb', function(t) {
-  var w = new W();
-  var writeCb = false;
-  w._write = function(chunk, e, cb) {
-    cb();
-  };
-  w.on('finish', function() {
-    assert(writeCb);
-    t.end();
-  });
-  w.write(Buffer(0), function(er) {
-    writeCb = true;
-  });
-  w.end();
-});

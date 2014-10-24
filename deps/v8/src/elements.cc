@@ -154,9 +154,8 @@ static void CopyObjectToObjectElements(FixedArrayBase* from_base,
                                        ElementsKind to_kind,
                                        uint32_t to_start,
                                        int raw_copy_size) {
-  ASSERT(to_base->map() !=
-      from_base->GetIsolate()->heap()->fixed_cow_array_map());
-  DisallowHeapAllocation no_allocation;
+  ASSERT(to_base->map() != HEAP->fixed_cow_array_map());
+  AssertNoAllocation no_allocation;
   int copy_size = raw_copy_size;
   if (raw_copy_size < 0) {
     ASSERT(raw_copy_size == ElementsAccessor::kCopyToEnd ||
@@ -205,7 +204,7 @@ static void CopyDictionaryToObjectElements(FixedArrayBase* from_base,
                                            uint32_t to_start,
                                            int raw_copy_size) {
   SeededNumberDictionary* from = SeededNumberDictionary::cast(from_base);
-  DisallowHeapAllocation no_allocation;
+  AssertNoAllocation no_allocation;
   int copy_size = raw_copy_size;
   Heap* heap = from->GetHeap();
   if (raw_copy_size < 0) {
@@ -493,6 +492,7 @@ static void TraceTopFrame(Isolate* isolate) {
   }
   StackFrame* raw_frame = it.frame();
   if (raw_frame->is_internal()) {
+    Isolate* isolate = Isolate::Current();
     Code* apply_builtin = isolate->builtins()->builtin(
         Builtins::kFunctionApply);
     if (raw_frame->unchecked_code() == apply_builtin) {
@@ -581,8 +581,14 @@ class ElementsAccessorBase : public ElementsAccessor {
     // When objects are first allocated, its elements are Failures.
     if (fixed_array_base->IsFailure()) return;
     if (!fixed_array_base->IsHeapObject()) return;
+    Map* map = fixed_array_base->map();
     // Arrays that have been shifted in place can't be verified.
-    if (fixed_array_base->IsFiller()) return;
+    Heap* heap = holder->GetHeap();
+    if (map == heap->one_pointer_filler_map() ||
+        map == heap->two_pointer_filler_map() ||
+        map == heap->free_space_map()) {
+      return;
+    }
     int length = 0;
     if (holder->IsJSArray()) {
       Object* length_obj = JSArray::cast(holder)->length();
@@ -792,7 +798,7 @@ class ElementsAccessorBase : public ElementsAccessor {
       FixedArray* to,
       FixedArrayBase* from) {
     int len0 = to->length();
-#ifdef ENABLE_SLOW_ASSERTS
+#ifdef DEBUG
     if (FLAG_enable_slow_asserts) {
       for (int i = 0; i < len0; i++) {
         ASSERT(!to->get(i)->IsTheHole());
@@ -834,7 +840,7 @@ class ElementsAccessorBase : public ElementsAccessor {
 
     // Fill in the content
     {
-      DisallowHeapAllocation no_gc;
+      AssertNoAllocation no_gc;
       WriteBarrierMode mode = result->GetWriteBarrierMode(no_gc);
       for (int i = 0; i < len0; i++) {
         Object* e = to->get(i);
@@ -2038,7 +2044,7 @@ MUST_USE_RESULT MaybeObject* ArrayConstructInitializeElements(
     }
     case FAST_HOLEY_ELEMENTS:
     case FAST_ELEMENTS: {
-      DisallowHeapAllocation no_gc;
+      AssertNoAllocation no_gc;
       WriteBarrierMode mode = elms->GetWriteBarrierMode(no_gc);
       FixedArray* object_elms = FixedArray::cast(elms);
       for (int index = 0; index < number_of_elements; index++) {

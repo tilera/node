@@ -35,6 +35,8 @@
 namespace v8 {
 namespace internal {
 
+static const int kPrologueOffsetNotSet = -1;
+
 class ScriptDataImpl;
 class HydrogenCodeStub;
 
@@ -45,24 +47,22 @@ enum ParseRestriction {
   ONLY_SINGLE_FUNCTION_LITERAL  // Only a single FunctionLiteral expression.
 };
 
-struct OffsetRange {
-  OffsetRange(int from, int to) : from(from), to(to) {}
-  int from;
-  int to;
-};
-
 // CompilationInfo encapsulates some information known at compile time.  It
 // is constructed based on the resources available at compile-time.
 class CompilationInfo {
  public:
+  CompilationInfo(Handle<Script> script, Zone* zone);
+  CompilationInfo(Handle<SharedFunctionInfo> shared_info, Zone* zone);
   CompilationInfo(Handle<JSFunction> closure, Zone* zone);
-  virtual ~CompilationInfo();
+  CompilationInfo(HydrogenCodeStub* stub, Isolate* isolate, Zone* zone);
 
-  Isolate* isolate() const {
+  ~CompilationInfo();
+
+  Isolate* isolate() {
+    ASSERT(Isolate::Current() == isolate_);
     return isolate_;
   }
   Zone* zone() { return zone_; }
-  bool is_osr() const { return !osr_ast_id_.IsNone(); }
   bool is_lazy() const { return IsLazy::decode(flags_); }
   bool is_eval() const { return IsEval::decode(flags_); }
   bool is_global() const { return IsGlobal::decode(flags_); }
@@ -84,7 +84,6 @@ class CompilationInfo {
   ScriptDataImpl* pre_parse_data() const { return pre_parse_data_; }
   Handle<Context> context() const { return context_; }
   BailoutId osr_ast_id() const { return osr_ast_id_; }
-  uint32_t osr_pc_offset() const { return osr_pc_offset_; }
   int opt_count() const { return opt_count_; }
   int num_parameters() const;
   int num_heap_slots() const;
@@ -198,11 +197,6 @@ class CompilationInfo {
     return IsCompilingForDebugging::decode(flags_);
   }
 
-  bool ShouldTrapOnDeopt() const {
-    return (FLAG_trap_on_deopt && IsOptimizing()) ||
-        (FLAG_trap_on_stub_deopt && IsStub());
-  }
-
   bool has_global_object() const {
     return !closure().is_null() &&
         (closure()->context()->global_object() != NULL);
@@ -234,27 +228,14 @@ class CompilationInfo {
   // Determines whether or not to insert a self-optimization header.
   bool ShouldSelfOptimize();
 
-  // Reset code to the unoptimized version when optimization is aborted.
-  void AbortOptimization() {
-    SetCode(handle(shared_info()->code()));
-  }
+  // Disable all optimization attempts of this info for the rest of the
+  // current compilation pipeline.
+  void AbortOptimization();
 
   void set_deferred_handles(DeferredHandles* deferred_handles) {
     ASSERT(deferred_handles_ == NULL);
     deferred_handles_ = deferred_handles;
   }
-
-  ZoneList<Handle<HeapObject> >* dependencies(
-      DependentCode::DependencyGroup group) {
-    if (dependencies_[group] == NULL) {
-      dependencies_[group] = new(zone_) ZoneList<Handle<HeapObject> >(2, zone_);
-    }
-    return dependencies_[group];
-  }
-
-  void CommitDependencies(Handle<Code> code);
-
-  void RollbackDependencies();
 
   void SaveHandles() {
     SaveHandle(&closure_);
@@ -263,66 +244,18 @@ class CompilationInfo {
     SaveHandle(&script_);
   }
 
-  BailoutReason bailout_reason() const { return bailout_reason_; }
-  void set_bailout_reason(BailoutReason reason) { bailout_reason_ = reason; }
+  const char* bailout_reason() const { return bailout_reason_; }
+  void set_bailout_reason(const char* reason) { bailout_reason_ = reason; }
 
   int prologue_offset() const {
-    ASSERT_NE(Code::kPrologueOffsetNotSet, prologue_offset_);
+    ASSERT_NE(kPrologueOffsetNotSet, prologue_offset_);
     return prologue_offset_;
   }
 
   void set_prologue_offset(int prologue_offset) {
-    ASSERT_EQ(Code::kPrologueOffsetNotSet, prologue_offset_);
+    ASSERT_EQ(kPrologueOffsetNotSet, prologue_offset_);
     prologue_offset_ = prologue_offset;
   }
-
-  // Adds offset range [from, to) where fp register does not point
-  // to the current frame base. Used in CPU profiler to detect stack
-  // samples where top frame is not set up.
-  inline void AddNoFrameRange(int from, int to) {
-    if (no_frame_ranges_) no_frame_ranges_->Add(OffsetRange(from, to));
-  }
-
-  List<OffsetRange>* ReleaseNoFrameRanges() {
-    List<OffsetRange>* result = no_frame_ranges_;
-    no_frame_ranges_ = NULL;
-    return result;
-  }
-
-  Handle<Foreign> object_wrapper() {
-    if (object_wrapper_.is_null()) {
-      object_wrapper_ =
-          isolate()->factory()->NewForeign(reinterpret_cast<Address>(this));
-    }
-    return object_wrapper_;
-  }
-
-  void AbortDueToDependencyChange() {
-    ASSERT(!isolate()->optimizing_compiler_thread()->IsOptimizerThread());
-    abort_due_to_dependency_ = true;
-  }
-
-  bool HasAbortedDueToDependencyChange() {
-    ASSERT(!isolate()->optimizing_compiler_thread()->IsOptimizerThread());
-    return abort_due_to_dependency_;
-  }
-
-  void set_osr_pc_offset(uint32_t pc_offset) {
-    osr_pc_offset_ = pc_offset;
-  }
-
-  bool HasSameOsrEntry(Handle<JSFunction> function, uint32_t pc_offset) {
-    return osr_pc_offset_ == pc_offset && function.is_identical_to(closure_);
-  }
-
- protected:
-  CompilationInfo(Handle<Script> script,
-                  Zone* zone);
-  CompilationInfo(Handle<SharedFunctionInfo> shared_info,
-                  Zone* zone);
-  CompilationInfo(HydrogenCodeStub* stub,
-                  Isolate* isolate,
-                  Zone* zone);
 
  private:
   Isolate* isolate_;
@@ -342,7 +275,7 @@ class CompilationInfo {
   void Initialize(Isolate* isolate, Mode mode, Zone* zone);
 
   void SetMode(Mode mode) {
-    ASSERT(isolate()->use_crankshaft());
+    ASSERT(V8::UseCrankshaft());
     mode_ = mode;
   }
 
@@ -409,20 +342,12 @@ class CompilationInfo {
   // Compilation mode flag and whether deoptimization is allowed.
   Mode mode_;
   BailoutId osr_ast_id_;
-  // The pc_offset corresponding to osr_ast_id_ in unoptimized code.
-  // We can look this up in the back edge table, but cache it for quick access.
-  uint32_t osr_pc_offset_;
-
-  // Flag whether compilation needs to be aborted due to dependency change.
-  bool abort_due_to_dependency_;
 
   // The zone from which the compilation pipeline working on this
   // CompilationInfo allocates.
   Zone* zone_;
 
   DeferredHandles* deferred_handles_;
-
-  ZoneList<Handle<HeapObject> >* dependencies_[DependentCode::kGroupCount];
 
   template<typename T>
   void SaveHandle(Handle<T> *object) {
@@ -432,17 +357,13 @@ class CompilationInfo {
     }
   }
 
-  BailoutReason bailout_reason_;
+  const char* bailout_reason_;
 
   int prologue_offset_;
-
-  List<OffsetRange>* no_frame_ranges_;
 
   // A copy of shared_info()->opt_count() to avoid handle deref
   // during graph optimization.
   int opt_count_;
-
-  Handle<Foreign> object_wrapper_;
 
   DISALLOW_COPY_AND_ASSIGN(CompilationInfo);
 };
@@ -454,26 +375,24 @@ class CompilationInfoWithZone: public CompilationInfo {
  public:
   explicit CompilationInfoWithZone(Handle<Script> script)
       : CompilationInfo(script, &zone_),
-        zone_(script->GetIsolate()) {}
+        zone_(script->GetIsolate()),
+        zone_scope_(&zone_, DELETE_ON_EXIT) {}
   explicit CompilationInfoWithZone(Handle<SharedFunctionInfo> shared_info)
       : CompilationInfo(shared_info, &zone_),
-        zone_(shared_info->GetIsolate()) {}
+        zone_(shared_info->GetIsolate()),
+        zone_scope_(&zone_, DELETE_ON_EXIT) {}
   explicit CompilationInfoWithZone(Handle<JSFunction> closure)
       : CompilationInfo(closure, &zone_),
-        zone_(closure->GetIsolate()) {}
-  CompilationInfoWithZone(HydrogenCodeStub* stub, Isolate* isolate)
+        zone_(closure->GetIsolate()),
+        zone_scope_(&zone_, DELETE_ON_EXIT) {}
+  explicit CompilationInfoWithZone(HydrogenCodeStub* stub, Isolate* isolate)
       : CompilationInfo(stub, isolate, &zone_),
-        zone_(isolate) {}
-
-  // Virtual destructor because a CompilationInfoWithZone has to exit the
-  // zone scope and get rid of dependent maps even when the destructor is
-  // called when cast as a CompilationInfo.
-  virtual ~CompilationInfoWithZone() {
-    RollbackDependencies();
-  }
+        zone_(isolate),
+        zone_scope_(&zone_, DELETE_ON_EXIT) {}
 
  private:
   Zone zone_;
+  ZoneScope zone_scope_;
 };
 
 
@@ -504,15 +423,18 @@ class LChunk;
 // fail, bail-out to the full code generator or succeed.  Apart from
 // their return value, the status of the phase last run can be checked
 // using last_status().
-class RecompileJob: public ZoneObject {
+class OptimizingCompiler: public ZoneObject {
  public:
-  explicit RecompileJob(CompilationInfo* info)
+  explicit OptimizingCompiler(CompilationInfo* info)
       : info_(info),
+        oracle_(NULL),
         graph_builder_(NULL),
         graph_(NULL),
         chunk_(NULL),
-        last_status_(FAILED),
-        awaiting_install_(false) { }
+        time_taken_to_create_graph_(0),
+        time_taken_to_optimize_(0),
+        time_taken_to_codegen_(0),
+        last_status_(FAILED) { }
 
   enum Status {
     FAILED, BAILED_OUT, SUCCEEDED
@@ -532,23 +454,16 @@ class RecompileJob: public ZoneObject {
     return SetLastStatus(BAILED_OUT);
   }
 
-  void WaitForInstall() {
-    ASSERT(info_->is_osr());
-    awaiting_install_ = true;
-  }
-
-  bool IsWaitingForInstall() { return awaiting_install_; }
-
  private:
   CompilationInfo* info_;
+  TypeFeedbackOracle* oracle_;
   HOptimizedGraphBuilder* graph_builder_;
   HGraph* graph_;
   LChunk* chunk_;
-  TimeDelta time_taken_to_create_graph_;
-  TimeDelta time_taken_to_optimize_;
-  TimeDelta time_taken_to_codegen_;
+  int64_t time_taken_to_create_graph_;
+  int64_t time_taken_to_optimize_;
+  int64_t time_taken_to_codegen_;
   Status last_status_;
-  bool awaiting_install_;
 
   MUST_USE_RESULT Status SetLastStatus(Status status) {
     last_status_ = status;
@@ -557,19 +472,18 @@ class RecompileJob: public ZoneObject {
   void RecordOptimizationStats();
 
   struct Timer {
-    Timer(RecompileJob* job, TimeDelta* location)
-        : job_(job), location_(location) {
-      ASSERT(location_ != NULL);
-      timer_.Start();
-    }
+    Timer(OptimizingCompiler* compiler, int64_t* location)
+        : compiler_(compiler),
+          start_(OS::Ticks()),
+          location_(location) { }
 
     ~Timer() {
-      *location_ += timer_.Elapsed();
+      *location_ += (OS::Ticks() - start_);
     }
 
-    RecompileJob* job_;
-    ElapsedTimer timer_;
-    TimeDelta* location_;
+    OptimizingCompiler* compiler_;
+    int64_t start_;
+    int64_t* location_;
   };
 };
 
@@ -587,6 +501,8 @@ class RecompileJob: public ZoneObject {
 
 class Compiler : public AllStatic {
  public:
+  static const int kMaxInliningLevels = 3;
+
   // Call count before primitive functions trigger their own optimization.
   static const int kCallsUntilPrimitiveOpt = 200;
 
@@ -599,7 +515,6 @@ class Compiler : public AllStatic {
                                             Handle<Object> script_name,
                                             int line_offset,
                                             int column_offset,
-                                            bool is_shared_cross_origin,
                                             Handle<Context> context,
                                             v8::Extension* extension,
                                             ScriptDataImpl* pre_data,
@@ -618,8 +533,7 @@ class Compiler : public AllStatic {
   // success and false if the compilation resulted in a stack overflow.
   static bool CompileLazy(CompilationInfo* info);
 
-  static bool RecompileConcurrent(Handle<JSFunction> function,
-                                  uint32_t osr_pc_offset = 0);
+  static void RecompileParallel(Handle<JSFunction> function);
 
   // Compile a shared function info object (the function is possibly lazily
   // compiled).
@@ -632,7 +546,7 @@ class Compiler : public AllStatic {
                               bool is_toplevel,
                               Handle<Script> script);
 
-  static Handle<Code> InstallOptimizedCode(RecompileJob* job);
+  static void InstallOptimizedCode(OptimizingCompiler* info);
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
   static bool MakeCodeForLiveEdit(CompilationInfo* info);
@@ -641,30 +555,6 @@ class Compiler : public AllStatic {
   static void RecordFunctionCompilation(Logger::LogEventsAndTags tag,
                                         CompilationInfo* info,
                                         Handle<SharedFunctionInfo> shared);
-};
-
-
-class CompilationPhase BASE_EMBEDDED {
- public:
-  CompilationPhase(const char* name, CompilationInfo* info);
-  ~CompilationPhase();
-
- protected:
-  bool ShouldProduceTraceOutput() const;
-
-  const char* name() const { return name_; }
-  CompilationInfo* info() const { return info_; }
-  Isolate* isolate() const { return info()->isolate(); }
-  Zone* zone() { return &zone_; }
-
- private:
-  const char* name_;
-  CompilationInfo* info_;
-  Zone zone_;
-  unsigned info_zone_start_allocation_size_;
-  ElapsedTimer timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(CompilationPhase);
 };
 
 

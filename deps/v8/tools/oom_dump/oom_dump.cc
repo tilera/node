@@ -108,7 +108,6 @@ class IndirectSorter {
   int* a_;
 };
 
-
 void DumpHeapStats(const char *minidump_file) {
   Minidump minidump(minidump_file);
   CHECK(minidump.Read());

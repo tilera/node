@@ -74,9 +74,6 @@ endif
 # For mksnapshot host generation.
 GYPENV += host_os=${HOST_OS}
 
-# ICU doesn't support NaCl.
-GYPENV += v8_enable_i18n_support=0
-
 NACL_MAKEFILES = $(addprefix $(OUTDIR)/Makefile.,$(NACL_ARCHES))
 .SECONDEXPANSION:
 # For some reason the $$(basename $$@) expansion didn't work here...
@@ -94,8 +91,6 @@ $(NACL_MAKEFILES):
 	GYP_DEFINES="${GYPENV}" \
 	CC=${NACL_CC} \
 	CXX=${NACL_CXX} \
-	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(PYTHONPATH)" \
 	build/gyp/gyp --generator-output="${OUTDIR}" build/all.gyp \
 	              -Ibuild/standalone.gypi --depth=. \
-	              -S.$(subst .,,$(suffix $@)) $(GYPFLAGS) \
-                      -Dwno_array_bounds=-Wno-array-bounds
+	              -S.$(subst .,,$(suffix $@)) $(GYPFLAGS)

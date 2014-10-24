@@ -36,24 +36,54 @@
 namespace v8 {
 namespace internal {
 
-// Perform common subexpression elimination and loop-invariant code motion.
-class HGlobalValueNumberingPhase : public HPhase {
+// Simple sparse set with O(1) add, contains, and clear.
+class SparseSet {
  public:
-  explicit HGlobalValueNumberingPhase(HGraph* graph);
-
-  void Run() {
-    Analyze();
-    // Trigger a second analysis pass to further eliminate duplicate values
-    // that could only be discovered by removing side-effect-generating
-    // instructions during the first pass.
-    if (FLAG_smi_only_arrays && removed_side_effects_) {
-      Analyze();
-      // TODO(danno): Turn this into a fixpoint iteration.
-    }
+  SparseSet(Zone* zone, int capacity)
+      : capacity_(capacity),
+        length_(0),
+        dense_(zone->NewArray<int>(capacity)),
+        sparse_(zone->NewArray<int>(capacity)) {
+#ifndef NVALGRIND
+    // Initialize the sparse array to make valgrind happy.
+    memset(sparse_, 0, sizeof(sparse_[0]) * capacity);
+#endif
   }
 
+  bool Contains(int n) const {
+    ASSERT(0 <= n && n < capacity_);
+    int d = sparse_[n];
+    return 0 <= d && d < length_ && dense_[d] == n;
+  }
+
+  bool Add(int n) {
+    if (Contains(n)) return false;
+    dense_[length_] = n;
+    sparse_[n] = length_;
+    ++length_;
+    return true;
+  }
+
+  void Clear() { length_ = 0; }
+
  private:
-  void Analyze();
+  int capacity_;
+  int length_;
+  int* dense_;
+  int* sparse_;
+
+  DISALLOW_COPY_AND_ASSIGN(SparseSet);
+};
+
+
+class HGlobalValueNumberer BASE_EMBEDDED {
+ public:
+  HGlobalValueNumberer(HGraph* graph, CompilationInfo* info);
+
+  // Returns true if values with side effects are removed.
+  bool Analyze();
+
+ private:
   GVNFlagSet CollectSideEffectsOnPathsToDominatedBlock(
       HBasicBlock* dominator,
       HBasicBlock* dominated);
@@ -68,6 +98,12 @@ class HGlobalValueNumberingPhase : public HPhase {
   bool AllowCodeMotion();
   bool ShouldMove(HInstruction* instr, HBasicBlock* loop_header);
 
+  HGraph* graph() { return graph_; }
+  CompilationInfo* info() { return info_; }
+  Zone* zone() const { return graph_->zone(); }
+
+  HGraph* graph_;
+  CompilationInfo* info_;
   bool removed_side_effects_;
 
   // A map of block IDs to their side effects.
@@ -78,9 +114,7 @@ class HGlobalValueNumberingPhase : public HPhase {
 
   // Used when collecting side effects on paths from dominator to
   // dominated.
-  BitVector visited_on_paths_;
-
-  DISALLOW_COPY_AND_ASSIGN(HGlobalValueNumberingPhase);
+  SparseSet visited_on_paths_;
 };
 
 

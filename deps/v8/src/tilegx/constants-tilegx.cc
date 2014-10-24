@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_TILEGX
+#if defined(V8_TARGET_ARCH_TILEGX)
 
 #include "constants-tilegx.h"
 

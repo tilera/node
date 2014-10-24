@@ -51,7 +51,6 @@ class ZeroingAllocationPolicy {
   }
 };
 
-
 // Check that we can add (a reference to) an element of the list
 // itself.
 TEST(ListAdd) {
@@ -66,7 +65,6 @@ TEST(ListAdd) {
   list.Add(list[0]);
   CHECK_EQ(1, list[4]);
 }
-
 
 // Test that we can add all elements from a list to another list.
 TEST(ListAddAll) {

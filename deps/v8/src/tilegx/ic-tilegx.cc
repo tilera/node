@@ -29,7 +29,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_TILEGX
+#if defined(V8_TARGET_ARCH_TILEGX)
 
 #include "codegen.h"
 #include "code-stubs.h"
@@ -331,9 +331,9 @@ static void GenerateKeyNameCheck(MacroAssembler* masm,
   // Is the string internalized?
   // map: key map
   __ ld1u(hash, FieldMemOperand(map, Map::kInstanceTypeOffset));
-  STATIC_ASSERT(kInternalizedTag == 0);
-  __ And(at, hash, Operand(kIsNotInternalizedMask));
-  __ Branch(not_unique, ne, at, Operand(zero));
+  STATIC_ASSERT(kInternalizedTag != 0);
+  __ And(at, hash, Operand(kIsInternalizedMask));
+  __ Branch(not_unique, eq, at, Operand(zero));
 
   __ bind(&unique);
 }
@@ -359,7 +359,7 @@ void CallICBase::GenerateMonomorphicCacheProbe(MacroAssembler* masm,
                                          extra_state,
                                          Code::NORMAL,
                                          argc);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, a1, a2, a3, t0, t1, t2);
 
   // If the stub cache probing failed, the receiver might be a value.
@@ -645,6 +645,10 @@ void KeyedCallIC::GenerateNormal(MacroAssembler* masm, int argc) {
   GenerateMiss(masm, argc);
 }
 
+
+// Defined in ic.cc.
+Object* LoadIC_Miss(Arguments args);
+
 void LoadIC::GenerateMegamorphic(MacroAssembler* masm) {
   // ----------- S t a t e -------------
   //  -- a2    : name
@@ -657,7 +661,7 @@ void LoadIC::GenerateMegamorphic(MacroAssembler* masm) {
   Code::Flags flags = Code::ComputeFlags(
       Code::STUB, MONOMORPHIC, Code::kNoExtraICState,
       Code::NORMAL, Code::LOAD_IC);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, a0, a2, a3, t0, t1, t2);
 
   // Cache miss: Jump to runtime.
@@ -886,6 +890,9 @@ void KeyedCallIC::GenerateNonStrictArguments(MacroAssembler* masm,
 }
 
 
+Object* KeyedLoadIC_Miss(Arguments args);
+
+
 void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
   // ---------- S t a t e --------------
   //  -- ra     : return address
@@ -902,22 +909,9 @@ void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
   ExternalReference ref = miss_mode == MISS_FORCE_GENERIC
       ? ExternalReference(IC_Utility(kKeyedLoadIC_MissForceGeneric), isolate)
       : ExternalReference(IC_Utility(kKeyedLoadIC_Miss), isolate);
-
   __ TailCallExternalReference(ref, 2, 1);
 }
 
-void LoadIC::GenerateRuntimeGetProperty(MacroAssembler* masm) {
-  // ---------- S t a t e --------------
-  //  -- a2    : name
-  //  -- ra    : return address
-  //  -- a0    : receiver
-  // -----------------------------------
-
-  __ move(a3, a0);
-  __ Push(a3, a2);
-
-  __ TailCallRuntime(Runtime::kGetProperty, 2, 1);
-}
 
 void KeyedLoadIC::GenerateRuntimeGetProperty(MacroAssembler* masm) {
   // ---------- S t a t e --------------
@@ -1269,8 +1263,8 @@ static void KeyedStoreGenerateGenericHelper(
                                          t0,
                                          slow);
   ASSERT(receiver_map.is(a3));  // Transition code expects map in a3
-  AllocationSiteMode mode = AllocationSite::GetMode(FAST_SMI_ELEMENTS,
-                                                    FAST_DOUBLE_ELEMENTS);
+  AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                        FAST_DOUBLE_ELEMENTS);
   ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, slow);
   __ ld(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
   __ jmp(&fast_double_without_map_check);
@@ -1283,7 +1277,7 @@ static void KeyedStoreGenerateGenericHelper(
                                          t0,
                                          slow);
   ASSERT(receiver_map.is(a3));  // Transition code expects map in a3
-  mode = AllocationSite::GetMode(FAST_SMI_ELEMENTS, FAST_ELEMENTS);
+  mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS, FAST_ELEMENTS);
   ElementsTransitionGenerator::GenerateMapChangeElementsTransition(masm, mode,
                                                                    slow);
   __ ld(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
@@ -1299,7 +1293,7 @@ static void KeyedStoreGenerateGenericHelper(
                                          t0,
                                          slow);
   ASSERT(receiver_map.is(a3));  // Transition code expects map in a3
-  mode = AllocationSite::GetMode(FAST_DOUBLE_ELEMENTS, FAST_ELEMENTS);
+  mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS, FAST_ELEMENTS);
   ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, slow);
   __ ld(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
   __ jmp(&finish_object_store);
@@ -1454,25 +1448,6 @@ void KeyedStoreIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
 }
 
 
-void StoreIC::GenerateSlow(MacroAssembler* masm) {
-  // ---------- S t a t e --------------
-  //  -- a0     : value
-  //  -- a2     : key
-  //  -- a1     : receiver
-  //  -- ra     : return address
-  // -----------------------------------
-
-  // Push receiver, key and value for runtime call.
-  __ Push(a1, a2, a0);
-
-  // The slow case calls into the runtime to complete the store without causing
-  // an IC miss that would otherwise cause a transition to the generic stub.
-  ExternalReference ref =
-      ExternalReference(IC_Utility(kStoreIC_Slow), masm->isolate());
-  __ TailCallExternalReference(ref, 3, 1);
-}
-
-
 void KeyedStoreIC::GenerateSlow(MacroAssembler* masm) {
   // ---------- S t a t e --------------
   //  -- a0     : value
@@ -1494,6 +1469,51 @@ void KeyedStoreIC::GenerateSlow(MacroAssembler* masm) {
 }
 
 
+void KeyedStoreIC::GenerateTransitionElementsSmiToDouble(MacroAssembler* masm) {
+  // ---------- S t a t e --------------
+  //  -- a2     : receiver
+  //  -- a3     : target map
+  //  -- ra     : return address
+  // -----------------------------------
+  // Must return the modified receiver in v0.
+  if (!FLAG_trace_elements_transitions) {
+    Label fail;
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                          FAST_DOUBLE_ELEMENTS);
+    ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, &fail);
+    __ move(v0, a2);
+    __ Ret();
+    __ bind(&fail);
+  }
+
+  __ push(a2);
+  __ TailCallRuntime(Runtime::kTransitionElementsSmiToDouble, 1, 1);
+}
+
+
+void KeyedStoreIC::GenerateTransitionElementsDoubleToObject(
+    MacroAssembler* masm) {
+  // ---------- S t a t e --------------
+  //  -- a2     : receiver
+  //  -- a3     : target map
+  //  -- ra     : return address
+  // -----------------------------------
+  // Must return the modified receiver in v0.
+  if (!FLAG_trace_elements_transitions) {
+    Label fail;
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS,
+                                                          FAST_ELEMENTS);
+    ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, &fail);
+    __ move(v0, a2);
+    __ Ret();
+    __ bind(&fail);
+  }
+
+  __ push(a2);
+  __ TailCallRuntime(Runtime::kTransitionElementsDoubleToObject, 1, 1);
+}
+
+
 void StoreIC::GenerateMegamorphic(MacroAssembler* masm,
                                   StrictModeFlag strict_mode) {
   // ----------- S t a t e -------------
@@ -1504,10 +1524,9 @@ void StoreIC::GenerateMegamorphic(MacroAssembler* masm,
   // -----------------------------------
 
   // Get the receiver from the stack and probe the stub cache.
-  Code::Flags flags = Code::ComputeFlags(
-      Code::HANDLER, MONOMORPHIC, strict_mode,
-      Code::NORMAL, Code::STORE_IC);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Code::Flags flags =
+      Code::ComputeFlags(Code::STORE_IC, MONOMORPHIC, strict_mode);
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, a1, a2, a3, t0, t1, t2);
 
   // Cache miss: Jump to runtime.
@@ -1553,8 +1572,8 @@ void StoreIC::GenerateNormal(MacroAssembler* masm) {
 }
 
 
-void StoreIC::GenerateRuntimeSetProperty(MacroAssembler* masm,
-                                         StrictModeFlag strict_mode) {
+void StoreIC::GenerateGlobalProxy(MacroAssembler* masm,
+                                  StrictModeFlag strict_mode) {
   // ----------- S t a t e -------------
   //  -- a0    : value
   //  -- a1    : receiver
@@ -1629,10 +1648,12 @@ void PatchInlinedSmiCode(Address address, InlinedSmiCheck check) {
     return;
   }
 
+#ifdef DEBUG
   if (FLAG_trace_ic) {
     PrintF("[  patching ic at %p, andi=%p, delta=%d\n",
            address, andi_instruction_address, delta);
   }
+#endif
 
   Address patch_address =
       andi_instruction_address - delta * Instruction::kInstrSize;

@@ -34,7 +34,6 @@
 var $Set = global.Set;
 var $Map = global.Map;
 var $WeakMap = global.WeakMap;
-var $WeakSet = global.WeakSet;
 
 // Global sentinel to be used instead of undefined keys, which are not
 // supported internally but required for Harmony sets and maps.
@@ -47,7 +46,7 @@ function SetConstructor() {
   if (%_IsConstructCall()) {
     %SetInitialize(this);
   } else {
-    throw MakeTypeError('constructor_not_function', ['Set']);
+    return new $Set();
   }
 }
 
@@ -141,7 +140,7 @@ function MapConstructor() {
   if (%_IsConstructCall()) {
     %MapInitialize(this);
   } else {
-    throw MakeTypeError('constructor_not_function', ['Map']);
+    return new $Map();
   }
 }
 
@@ -241,9 +240,9 @@ SetUpMap();
 
 function WeakMapConstructor() {
   if (%_IsConstructCall()) {
-    %WeakCollectionInitialize(this);
+    %WeakMapInitialize(this);
   } else {
-    throw MakeTypeError('constructor_not_function', ['WeakMap']);
+    return new $WeakMap();
   }
 }
 
@@ -256,7 +255,7 @@ function WeakMapGet(key) {
   if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
     throw %MakeTypeError('invalid_weakmap_key', [this, key]);
   }
-  return %WeakCollectionGet(this, key);
+  return %WeakMapGet(this, key);
 }
 
 
@@ -268,7 +267,7 @@ function WeakMapSet(key, value) {
   if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
     throw %MakeTypeError('invalid_weakmap_key', [this, key]);
   }
-  return %WeakCollectionSet(this, key, value);
+  return %WeakMapSet(this, key, value);
 }
 
 
@@ -280,7 +279,7 @@ function WeakMapHas(key) {
   if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
     throw %MakeTypeError('invalid_weakmap_key', [this, key]);
   }
-  return %WeakCollectionHas(this, key);
+  return %WeakMapHas(this, key);
 }
 
 
@@ -292,17 +291,7 @@ function WeakMapDelete(key) {
   if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
     throw %MakeTypeError('invalid_weakmap_key', [this, key]);
   }
-  return %WeakCollectionDelete(this, key);
-}
-
-
-function WeakMapClear() {
-  if (!IS_WEAKMAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakMap.prototype.clear', this]);
-  }
-  // Replace the internal table with a new empty table.
-  %WeakCollectionInitialize(this);
+  return %WeakMapDelete(this, key);
 }
 
 
@@ -320,88 +309,8 @@ function SetUpWeakMap() {
     "get", WeakMapGet,
     "set", WeakMapSet,
     "has", WeakMapHas,
-    "delete", WeakMapDelete,
-    "clear", WeakMapClear
+    "delete", WeakMapDelete
   ));
 }
 
 SetUpWeakMap();
-
-
-// -------------------------------------------------------------------
-// Harmony WeakSet
-
-function WeakSetConstructor() {
-  if (%_IsConstructCall()) {
-    %WeakCollectionInitialize(this);
-  } else {
-    throw MakeTypeError('constructor_not_function', ['WeakSet']);
-  }
-}
-
-
-function WeakSetAdd(value) {
-  if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.add', this]);
-  }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionSet(this, value, true);
-}
-
-
-function WeakSetHas(value) {
-  if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.has', this]);
-  }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionHas(this, value);
-}
-
-
-function WeakSetDelete(value) {
-  if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.delete', this]);
-  }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionDelete(this, value);
-}
-
-
-function WeakSetClear() {
-  if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.clear', this]);
-  }
-  // Replace the internal table with a new empty table.
-  %WeakCollectionInitialize(this);
-}
-
-
-// -------------------------------------------------------------------
-
-function SetUpWeakSet() {
-  %CheckIsBootstrapping();
-
-  %SetCode($WeakSet, WeakSetConstructor);
-  %FunctionSetPrototype($WeakSet, new $Object());
-  %SetProperty($WeakSet.prototype, "constructor", $WeakSet, DONT_ENUM);
-
-  // Set up the non-enumerable functions on the WeakSet prototype object.
-  InstallFunctions($WeakSet.prototype, DONT_ENUM, $Array(
-    "add", WeakSetAdd,
-    "has", WeakSetHas,
-    "delete", WeakSetDelete,
-    "clear", WeakSetClear
-  ));
-}
-
-SetUpWeakSet();

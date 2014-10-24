@@ -36,10 +36,7 @@
 #include <fcntl.h>
 #include <time.h>
 
-#ifndef __ANDROID__
 #define HAVE_IFADDRS_H 1
-#endif
-
 #ifdef __UCLIBC__
 # if __UCLIBC_MAJOR__ < 0 || __UCLIBC_MINOR__ < 9 || __UCLIBC_SUBLEVEL__ < 32
 #  undef HAVE_IFADDRS_H
@@ -47,15 +44,10 @@
 #endif
 #ifdef HAVE_IFADDRS_H
 # include <ifaddrs.h>
-# include <sys/socket.h>
-# include <net/ethernet.h>
-# include <linux/if_packet.h>
 #endif
 
-/* Available from 2.6.32 onwards. */
-#ifndef CLOCK_MONOTONIC_COARSE
-# define CLOCK_MONOTONIC_COARSE 6
-#endif
+#undef NANOSEC
+#define NANOSEC ((uint64_t) 1e9)
 
 /* This is rather annoying: CLOCK_BOOTTIME lives in <linux/time.h> but we can't
  * include that file because it conflicts with <time.h>. We'll just have to
@@ -91,7 +83,7 @@ int uv__platform_loop_init(uv_loop_t* loop, int default_loop) {
   loop->inotify_watchers = NULL;
 
   if (fd == -1)
-    return -errno;
+    return -1;
 
   return 0;
 }
@@ -100,13 +92,14 @@ int uv__platform_loop_init(uv_loop_t* loop, int default_loop) {
 void uv__platform_loop_delete(uv_loop_t* loop) {
   if (loop->inotify_fd == -1) return;
   uv__io_stop(loop, &loop->inotify_read_watcher, UV__POLLIN);
-  uv__close(loop->inotify_fd);
+  close(loop->inotify_fd);
   loop->inotify_fd = -1;
 }
 
 
 void uv__platform_invalidate_fd(uv_loop_t* loop, int fd) {
   struct uv__epoll_event* events;
+  struct uv__epoll_event dummy;
   uintptr_t i;
   uintptr_t nfds;
 
@@ -114,13 +107,20 @@ void uv__platform_invalidate_fd(uv_loop_t* loop, int fd) {
 
   events = (struct uv__epoll_event*) loop->watchers[loop->nwatchers];
   nfds = (uintptr_t) loop->watchers[loop->nwatchers + 1];
-  if (events == NULL)
-    return;
+  if (events != NULL)
+    /* Invalidate events with same file descriptor */
+    for (i = 0; i < nfds; i++)
+      if ((int) events[i].data == fd)
+        events[i].data = -1;
 
-  /* Invalidate events with same file descriptor */
-  for (i = 0; i < nfds; i++)
-    if ((int) events[i].data == fd)
-      events[i].data = -1;
+  /* Remove the file descriptor from the epoll.
+   * This avoids a problem where the same file description remains open
+   * in another process, causing repeated junk epoll events.
+   *
+   * We pass in a dummy epoll_event, to work around a bug in old kernels.
+   */
+  if (loop->backend_fd >= 0)
+    uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_DEL, fd, &dummy);
 }
 
 
@@ -128,7 +128,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   struct uv__epoll_event events[1024];
   struct uv__epoll_event* pe;
   struct uv__epoll_event e;
-  QUEUE* q;
+  ngx_queue_t* q;
   uv__io_t* w;
   uint64_t base;
   uint64_t diff;
@@ -140,16 +140,16 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   int i;
 
   if (loop->nfds == 0) {
-    assert(QUEUE_EMPTY(&loop->watcher_queue));
+    assert(ngx_queue_empty(&loop->watcher_queue));
     return;
   }
 
-  while (!QUEUE_EMPTY(&loop->watcher_queue)) {
-    q = QUEUE_HEAD(&loop->watcher_queue);
-    QUEUE_REMOVE(q);
-    QUEUE_INIT(q);
+  while (!ngx_queue_empty(&loop->watcher_queue)) {
+    q = ngx_queue_head(&loop->watcher_queue);
+    ngx_queue_remove(q);
+    ngx_queue_init(q);
 
-    w = QUEUE_DATA(q, uv__io_t, watcher_queue);
+    w = ngx_queue_data(q, uv__io_t, watcher_queue);
     assert(w->pevents != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
@@ -302,36 +302,10 @@ update_timeout:
 }
 
 
-uint64_t uv__hrtime(uv_clocktype_t type) {
-  static clock_t fast_clock_id = -1;
-  struct timespec t;
-  clock_t clock_id;
-
-  /* Prefer CLOCK_MONOTONIC_COARSE if available but only when it has
-   * millisecond granularity or better.  CLOCK_MONOTONIC_COARSE is
-   * serviced entirely from the vDSO, whereas CLOCK_MONOTONIC may
-   * decide to make a costly system call.
-   */
-  /* TODO(bnoordhuis) Use CLOCK_MONOTONIC_COARSE for UV_CLOCK_PRECISE
-   * when it has microsecond granularity or better (unlikely).
-   */
-  if (type == UV_CLOCK_FAST && fast_clock_id == -1) {
-    if (clock_getres(CLOCK_MONOTONIC_COARSE, &t) == 0 &&
-        t.tv_nsec <= 1 * 1000 * 1000) {
-      fast_clock_id = CLOCK_MONOTONIC_COARSE;
-    } else {
-      fast_clock_id = CLOCK_MONOTONIC;
-    }
-  }
-
-  clock_id = CLOCK_MONOTONIC;
-  if (type == UV_CLOCK_FAST)
-    clock_id = fast_clock_id;
-
-  if (clock_gettime(clock_id, &t))
-    return 0;  /* Not really possible. */
-
-  return t.tv_sec * (uint64_t) 1e9 + t.tv_nsec;
+uint64_t uv__hrtime(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (((uint64_t) ts.tv_sec) * NANOSEC + ts.tv_nsec);
 }
 
 
@@ -349,13 +323,12 @@ void uv_loadavg(double avg[3]) {
 int uv_exepath(char* buffer, size_t* size) {
   ssize_t n;
 
-  if (buffer == NULL || size == NULL)
-    return -EINVAL;
+  if (!buffer || !size) {
+    return -1;
+  }
 
   n = readlink("/proc/self/exe", buffer, *size - 1);
-  if (n == -1)
-    return -errno;
-
+  if (n <= 0) return -1;
   buffer[n] = '\0';
   *size = n;
 
@@ -373,7 +346,7 @@ uint64_t uv_get_total_memory(void) {
 }
 
 
-int uv_resident_set_memory(size_t* rss) {
+uv_err_t uv_resident_set_memory(size_t* rss) {
   char buf[1024];
   const char* s;
   ssize_t n;
@@ -386,15 +359,15 @@ int uv_resident_set_memory(size_t* rss) {
   while (fd == -1 && errno == EINTR);
 
   if (fd == -1)
-    return -errno;
+    return uv__new_sys_error(errno);
 
   do
     n = read(fd, buf, sizeof(buf) - 1);
   while (n == -1 && errno == EINTR);
 
-  uv__close(fd);
+  SAVE_ERRNO(close(fd));
   if (n == -1)
-    return -errno;
+    return uv__new_sys_error(errno);
   buf[n] = '\0';
 
   s = strchr(buf, ' ');
@@ -423,14 +396,14 @@ int uv_resident_set_memory(size_t* rss) {
     goto err;
 
   *rss = val * getpagesize();
-  return 0;
+  return uv_ok_;
 
 err:
-  return -EINVAL;
+  return uv__new_artificial_error(UV_EINVAL);
 }
 
 
-int uv_uptime(double* uptime) {
+uv_err_t uv_uptime(double* uptime) {
   static volatile int no_clock_boottime;
   struct timespec now;
   int r;
@@ -448,17 +421,17 @@ int uv_uptime(double* uptime) {
   }
 
   if (r)
-    return -errno;
+    return uv__new_sys_error(errno);
 
   *uptime = now.tv_sec;
-  return 0;
+  *uptime += (double)now.tv_nsec / 1000000000.0;
+  return uv_ok_;
 }
 
 
-int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
+uv_err_t uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
   unsigned int numcpus;
   uv_cpu_info_t* ci;
-  int err;
 
   *cpu_infos = NULL;
   *count = 0;
@@ -469,15 +442,16 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
 
   ci = calloc(numcpus, sizeof(*ci));
   if (ci == NULL)
-    return -ENOMEM;
+    return uv__new_sys_error(ENOMEM);
 
-  err = read_models(numcpus, ci);
-  if (err == 0)
-    err = read_times(numcpus, ci);
+  if (read_models(numcpus, ci)) {
+    SAVE_ERRNO(uv_free_cpu_info(ci, numcpus));
+    return uv__new_sys_error(errno);
+  }
 
-  if (err) {
-    uv_free_cpu_info(ci, numcpus);
-    return err;
+  if (read_times(numcpus, ci)) {
+    SAVE_ERRNO(uv_free_cpu_info(ci, numcpus));
+    return uv__new_sys_error(errno);
   }
 
   /* read_models() on x86 also reads the CPU speed from /proc/cpuinfo.
@@ -489,7 +463,7 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
   *cpu_infos = ci;
   *count = numcpus;
 
-  return 0;
+  return uv_ok_;
 }
 
 
@@ -533,7 +507,7 @@ static int read_models(unsigned int numcpus, uv_cpu_info_t* ci) {
     defined(__x86_64__)
   fp = fopen("/proc/cpuinfo", "r");
   if (fp == NULL)
-    return -errno;
+    return -1;
 
   while (fgets(buf, sizeof(buf), fp)) {
     if (model_idx < numcpus) {
@@ -542,7 +516,7 @@ static int read_models(unsigned int numcpus, uv_cpu_info_t* ci) {
         model = strndup(model, strlen(model) - 1);  /* Strip newline. */
         if (model == NULL) {
           fclose(fp);
-          return -ENOMEM;
+          return -1;
         }
         ci[model_idx++].model = model;
         continue;
@@ -561,7 +535,7 @@ static int read_models(unsigned int numcpus, uv_cpu_info_t* ci) {
         model = strndup(model, strlen(model) - 1);  /* Strip newline. */
         if (model == NULL) {
           fclose(fp);
-          return -ENOMEM;
+          return -1;
         }
         ci[model_idx++].model = model;
         continue;
@@ -591,7 +565,7 @@ static int read_models(unsigned int numcpus, uv_cpu_info_t* ci) {
   while (model_idx < numcpus) {
     model = strndup(inferred_model, strlen(inferred_model));
     if (model == NULL)
-      return -ENOMEM;
+      return -1;
     ci[model_idx++].model = model;
   }
 
@@ -619,7 +593,7 @@ static int read_times(unsigned int numcpus, uv_cpu_info_t* ci) {
 
   fp = fopen("/proc/stat", "r");
   if (fp == NULL)
-    return -errno;
+    return -1;
 
   if (!fgets(buf, sizeof(buf), fp))
     abort();
@@ -635,9 +609,11 @@ static int read_times(unsigned int numcpus, uv_cpu_info_t* ci) {
 
     /* skip "cpu<num> " marker */
     {
-      unsigned int n = num;
+      unsigned int n;
+      int r = sscanf(buf, "cpu%u ", &n);
+      assert(r == 1);
+      (void) r;  /* silence build warning */
       for (len = sizeof("cpu0"); n /= 10; len++);
-      assert(sscanf(buf, "cpu%u ", &n) == 1 && n == num);
     }
 
     /* Line contains user, nice, system, idle, iowait, irq, softirq, steal,
@@ -664,6 +640,7 @@ static int read_times(unsigned int numcpus, uv_cpu_info_t* ci) {
     ci[num++].cpu_times = ts;
   }
   fclose(fp);
+  assert(num == numcpus);
 
   return 0;
 }
@@ -703,24 +680,24 @@ void uv_free_cpu_info(uv_cpu_info_t* cpu_infos, int count) {
 }
 
 
-int uv_interface_addresses(uv_interface_address_t** addresses,
+uv_err_t uv_interface_addresses(uv_interface_address_t** addresses,
   int* count) {
 #ifndef HAVE_IFADDRS_H
-  return -ENOSYS;
+  return uv__new_artificial_error(UV_ENOSYS);
 #else
   struct ifaddrs *addrs, *ent;
+  char ip[INET6_ADDRSTRLEN];
   uv_interface_address_t* address;
-  int i;
-  struct sockaddr_ll *sll;
 
-  if (getifaddrs(&addrs))
-    return -errno;
+  if (getifaddrs(&addrs) != 0) {
+    return uv__new_sys_error(errno);
+  }
 
   *count = 0;
 
   /* Count the number of interfaces */
   for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
-    if (!((ent->ifa_flags & IFF_UP) && (ent->ifa_flags & IFF_RUNNING)) ||
+    if (!(ent->ifa_flags & IFF_UP && ent->ifa_flags & IFF_RUNNING) ||
         (ent->ifa_addr == NULL) ||
         (ent->ifa_addr->sa_family == PF_PACKET)) {
       continue;
@@ -729,67 +706,48 @@ int uv_interface_addresses(uv_interface_address_t** addresses,
     (*count)++;
   }
 
-  *addresses = malloc(*count * sizeof(**addresses));
-  if (!(*addresses))
-    return -ENOMEM;
+  *addresses = (uv_interface_address_t*)
+    malloc(*count * sizeof(uv_interface_address_t));
+  if (!(*addresses)) {
+    return uv__new_artificial_error(UV_ENOMEM);
+  }
 
   address = *addresses;
 
   for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
-    if (!((ent->ifa_flags & IFF_UP) && (ent->ifa_flags & IFF_RUNNING)))
+    bzero(&ip, sizeof (ip));
+    if (!(ent->ifa_flags & IFF_UP && ent->ifa_flags & IFF_RUNNING)) {
       continue;
+    }
 
-    if (ent->ifa_addr == NULL)
+    if (ent->ifa_addr == NULL) {
       continue;
+    }
 
     /*
      * On Linux getifaddrs returns information related to the raw underlying
-     * devices. We're not interested in this information yet.
+     * devices. We're not interested in this information.
      */
-    if (ent->ifa_addr->sa_family == PF_PACKET)
+    if (ent->ifa_addr->sa_family == PF_PACKET) {
       continue;
+    }
 
     address->name = strdup(ent->ifa_name);
 
     if (ent->ifa_addr->sa_family == AF_INET6) {
-      address->address.address6 = *((struct sockaddr_in6*) ent->ifa_addr);
+      address->address.address6 = *((struct sockaddr_in6 *)ent->ifa_addr);
     } else {
-      address->address.address4 = *((struct sockaddr_in*) ent->ifa_addr);
+      address->address.address4 = *((struct sockaddr_in *)ent->ifa_addr);
     }
 
-    if (ent->ifa_netmask->sa_family == AF_INET6) {
-      address->netmask.netmask6 = *((struct sockaddr_in6*) ent->ifa_netmask);
-    } else {
-      address->netmask.netmask4 = *((struct sockaddr_in*) ent->ifa_netmask);
-    }
-
-    address->is_internal = !!(ent->ifa_flags & IFF_LOOPBACK);
+    address->is_internal = ent->ifa_flags & IFF_LOOPBACK ? 1 : 0;
 
     address++;
   }
 
-  /* Fill in physical addresses for each interface */
-  for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
-    if (!((ent->ifa_flags & IFF_UP) && (ent->ifa_flags & IFF_RUNNING)) ||
-        (ent->ifa_addr == NULL) ||
-        (ent->ifa_addr->sa_family != PF_PACKET)) {
-      continue;
-    }
-
-    address = *addresses;
-
-    for (i = 0; i < (*count); i++) {
-      if (strcmp(address->name, ent->ifa_name) == 0) {
-        sll = (struct sockaddr_ll*)ent->ifa_addr;
-        memcpy(address->phys_addr, sll->sll_addr, sizeof(address->phys_addr));
-      }
-      address++;
-    }
-  }
-
   freeifaddrs(addrs);
 
-  return 0;
+  return uv_ok_;
 #endif
 }
 

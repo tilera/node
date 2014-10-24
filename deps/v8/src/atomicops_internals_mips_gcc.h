@@ -30,6 +30,8 @@
 #ifndef V8_ATOMICOPS_INTERNALS_MIPS_GCC_H_
 #define V8_ATOMICOPS_INTERNALS_MIPS_GCC_H_
 
+#define ATOMICOPS_COMPILER_BARRIER() __asm__ __volatile__("" : : : "memory")
+
 namespace v8 {
 namespace internal {
 
@@ -109,9 +111,9 @@ inline Atomic32 NoBarrier_AtomicIncrement(volatile Atomic32* ptr,
 
 inline Atomic32 Barrier_AtomicIncrement(volatile Atomic32* ptr,
                                         Atomic32 increment) {
-  MemoryBarrier();
+  ATOMICOPS_COMPILER_BARRIER();
   Atomic32 res = NoBarrier_AtomicIncrement(ptr, increment);
-  MemoryBarrier();
+  ATOMICOPS_COMPILER_BARRIER();
   return res;
 }
 
@@ -124,16 +126,19 @@ inline Atomic32 Barrier_AtomicIncrement(volatile Atomic32* ptr,
 inline Atomic32 Acquire_CompareAndSwap(volatile Atomic32* ptr,
                                        Atomic32 old_value,
                                        Atomic32 new_value) {
+  ATOMICOPS_COMPILER_BARRIER();
   Atomic32 res = NoBarrier_CompareAndSwap(ptr, old_value, new_value);
-  MemoryBarrier();
+  ATOMICOPS_COMPILER_BARRIER();
   return res;
 }
 
 inline Atomic32 Release_CompareAndSwap(volatile Atomic32* ptr,
                                        Atomic32 old_value,
                                        Atomic32 new_value) {
-  MemoryBarrier();
-  return NoBarrier_CompareAndSwap(ptr, old_value, new_value);
+  ATOMICOPS_COMPILER_BARRIER();
+  Atomic32 res = NoBarrier_CompareAndSwap(ptr, old_value, new_value);
+  ATOMICOPS_COMPILER_BARRIER();
+  return res;
 }
 
 inline void NoBarrier_Store(volatile Atomic32* ptr, Atomic32 value) {
@@ -170,5 +175,7 @@ inline Atomic32 Release_Load(volatile const Atomic32* ptr) {
 }
 
 } }  // namespace v8::internal
+
+#undef ATOMICOPS_COMPILER_BARRIER
 
 #endif  // V8_ATOMICOPS_INTERNALS_MIPS_GCC_H_

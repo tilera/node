@@ -35,7 +35,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_TILEGX
+#if defined(V8_TARGET_ARCH_TILEGX)
 
 #include "tilegx/assembler-tilegx-inl.h"
 #include "serialize.h"
@@ -48,7 +48,6 @@ bool CpuFeatures::initialized_ = false;
 #endif
 unsigned CpuFeatures::supported_ = 0;
 unsigned CpuFeatures::found_by_runtime_probing_only_ = 0;
-unsigned CpuFeatures::cross_compile_ = 0;
 
 
 ExternalReference ExternalReference::cpu_features() {
@@ -335,6 +334,7 @@ void Assembler::st(const DoubleRegister& rd, const MemOperand& rs, int line) {
 }
 
 void Assembler::st(const DoubleRegister& rd, const Register& rs, int line) {
+
   ASSERT(rd.is_valid() && rs.is_valid());
   Instr instr = ST_X1 | SRCA_X1(rs.code()) | SRCB_X1(rd.code());
   emit(instr, line);
@@ -399,6 +399,7 @@ void Assembler::st4(const Register& rd, const MemOperand& rs, int line) {
 
 void Assembler::st4(const Register& rd, const Register& rs, int line) {
   ASSERT(rd.is_valid() && rs.is_valid());
+
   Instr instr = ST4_X1 | SRCA_X1(rs.code()) | SRCB_X1(rd.code());
   emit(instr, line);
 }
@@ -617,10 +618,41 @@ void Assembler::fdouble_add_flags(const Register& rd, const Register& rsa, const
   emit(instr, line);
 }
 
+void Assembler::fdouble_addsub(const Register& rd, const Register& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_ADDSUB_X0 | DEST_X0(rd.code())
+                       | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_max(const Register& rd, const Register& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MAX_X0 | DEST_X0(rd.code())
+                       | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_min(const Register& rd, const Register& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MIN_X0 | DEST_X0(rd.code())
+                       | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
 void Assembler::add(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = ADD_X1 | DEST_X1(rd.code())
 	               | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::addx(const Register& rd, const Register& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = ADDX_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
   emit(instr, line);
 }
 
@@ -726,6 +758,13 @@ void Assembler::info(const int16_t imm16, int line) {
   emit(instr, line);
 }
 
+void Assembler::shl1add(const Register& rd, const Register& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = SHL1ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
 void Assembler::shl16insli(const Register& rd, const Register& rs, int16_t imm, int line) {
   ASSERT(rd.is_valid() && rs.is_valid() && is_int16(imm));
   Instr instr = SHL16INSLI_X1 | DEST_X1(rd.code())
@@ -770,6 +809,19 @@ void Assembler::movz(const Register& rd, const Register& rs, const Register& rt,
   ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
   Instr instr = CMOVEQZ_X0 | DEST_X0(rd.code())
 	                   | SRCA_X0(rt.code()) | SRCB_X0(rs.code());
+  emit(instr, line);
+}
+
+void Assembler::cmpexch(const Register& rd, const Register& rs, const Register& rt, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
+  Instr instr = CMPEXCH_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | SRCB_X1(rt.code());
+  emit(instr, line);
+}
+
+void Assembler::mtspr(int16_t imm, const Register& rs, int line) {
+  ASSERT(rs.is_valid() && is_int16(imm));
+  Instr instr = MTSPR_X1 | MT_IMM14_X1(imm) | SRCA_X1(rs.code());
   emit(instr, line);
 }
 
@@ -1183,8 +1235,13 @@ void Assembler::set_target_address_at(Address pc, Address target) {
 
 void Assembler::Align(int m) {
   ASSERT(m >= 4 && IsPowerOf2(m));
-  while ((pc_offset() & (m - 1)) != 0) {
-    nop();
+  if (m <= kInstrSize) {
+    while ((pc_offset() & (m - 1)) != 0) {
+      *pc_++ = 0;
+    }
+  } else
+    while ((pc_offset() & (m - 1)) != 0) {
+      nop();
   }
 }
 
@@ -1246,7 +1303,9 @@ int Assembler::RelocateInternalReference(byte* pc, intptr_t pc_delta) {
     Instr instr_moveli = instr_at(pc + 0 * Assembler::kInstrSize);
     Instr instr_shl16insli0 = instr_at(pc + 1 * Assembler::kInstrSize);
     Instr instr_shl16insli1 = instr_at(pc + 2 * Assembler::kInstrSize);
+#ifdef DEBUG
     Instr instr_shl16insli2 = instr_at(pc + 3 * Assembler::kInstrSize);
+#endif
     ASSERT(IsSHL16INSLI(instr_shl16insli0));
     ASSERT(IsSHL16INSLI(instr_shl16insli1));
     ASSERT(!IsSHL16INSLI(instr_shl16insli2));
@@ -1312,12 +1371,15 @@ MemOperand::MemOperand(Register rm, int64_t offset) : Operand(rm) {
 }
 
 Operand::Operand(Handle<Object> handle) {
-  AllowDeferredHandleDereference using_raw_address;
+#ifdef DEBUG
+  Isolate* isolate = Isolate::Current();
+#endif
+  ALLOW_HANDLE_DEREF(isolate, "using and embedding raw address");
   rm_ = no_reg;
   // Verify all Objects referred by code are NOT in new space.
   Object* obj = *handle;
+  ASSERT(!isolate->heap()->InNewSpace(obj));
   if (obj->IsHeapObject()) {
-    ASSERT(!HeapObject::cast(obj)->GetHeap()->InNewSpace(obj));
     imm64_ = reinterpret_cast<intptr_t>(handle.location());
     rmode_ = RelocInfo::EMBEDDED_OBJECT;
   } else {
@@ -1344,13 +1406,6 @@ void RelocInfo::PatchCode(byte* instructions, int instruction_count) {
 
   // Indicate that code has changed.
   CPU::FlushICache(pc_, instruction_count * Assembler::kInstrSize);
-}
-
-// Patch the code at the current PC with a call to the target address.
-// Additional guard instructions can be added if required.
-void RelocInfo::PatchCodeWithCall(Address target, int guard_bytes) {
-  // Patch the code at the current address with a call to the target.
-  UNIMPLEMENTED_TILEGX();
 }
 
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
@@ -1756,7 +1811,7 @@ void Assembler::break_(uint32_t code, bool break_as_stop) {
 void Assembler::stop(const char* msg, uint32_t code) {
   ASSERT(code > kMaxWatchpointCode);
   ASSERT(code <= kMaxStopCode);
-#if V8_HOST_ARCH_TILEGX
+#if defined(V8_HOST_ARCH_TILEGX)
   break_(0x54321);
 #else  // V8_HOST_ARCH_TILEGX
 #if 0 // No Simulator Support for TileGX

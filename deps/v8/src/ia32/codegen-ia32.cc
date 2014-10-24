@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_IA32
+#if defined(V8_TARGET_ARCH_IA32)
 
 #include "codegen.h"
 #include "heap.h"
@@ -117,7 +117,7 @@ UnaryMathFunction CreateExpFunction() {
     CpuFeatureScope use_sse2(&masm, SSE2);
     XMMRegister input = xmm1;
     XMMRegister result = xmm2;
-    __ movsd(input, Operand(esp, 1 * kPointerSize));
+    __ movdbl(input, Operand(esp, 1 * kPointerSize));
     __ push(eax);
     __ push(ebx);
 
@@ -125,7 +125,7 @@ UnaryMathFunction CreateExpFunction() {
 
     __ pop(ebx);
     __ pop(eax);
-    __ movsd(Operand(esp, 1 * kPointerSize), result);
+    __ movdbl(Operand(esp, 1 * kPointerSize), result);
     __ fld_d(Operand(esp, 1 * kPointerSize));
     __ Ret();
   }
@@ -155,9 +155,9 @@ UnaryMathFunction CreateSqrtFunction() {
   // Move double input into registers.
   {
     CpuFeatureScope use_sse2(&masm, SSE2);
-    __ movsd(xmm0, Operand(esp, 1 * kPointerSize));
+    __ movdbl(xmm0, Operand(esp, 1 * kPointerSize));
     __ sqrtsd(xmm0, xmm0);
-    __ movsd(Operand(esp, 1 * kPointerSize), xmm0);
+    __ movdbl(Operand(esp, 1 * kPointerSize), xmm0);
     // Load result into floating point register as return value.
     __ fld_d(Operand(esp, 1 * kPointerSize));
     __ Ret();
@@ -176,6 +176,11 @@ UnaryMathFunction CreateSqrtFunction() {
 // Helper functions for CreateMemMoveFunction.
 #undef __
 #define __ ACCESS_MASM(masm)
+
+// Keep around global pointers to these objects so that Valgrind won't complain.
+static size_t* medium_handlers = NULL;
+static size_t* small_handlers = NULL;
+
 
 enum Direction { FORWARD, BACKWARD };
 enum Alignment { MOVE_ALIGNED, MOVE_UNALIGNED };
@@ -248,24 +253,12 @@ void MemMoveEmitPopAndReturn(MacroAssembler* masm) {
 #define __ masm.
 
 
-class LabelConverter {
- public:
-  explicit LabelConverter(byte* buffer) : buffer_(buffer) {}
-  int32_t address(Label* l) const {
-    return reinterpret_cast<int32_t>(buffer_) + l->pos();
-  }
- private:
-  byte* buffer_;
-};
-
-
 OS::MemMoveFunction CreateMemMoveFunction() {
   size_t actual_size;
   // Allocate buffer in executable space.
   byte* buffer = static_cast<byte*>(OS::Allocate(1 * KB, &actual_size, true));
   if (buffer == NULL) return NULL;
   MacroAssembler masm(NULL, buffer, static_cast<int>(actual_size));
-  LabelConverter conv(buffer);
 
   // Generated code is put into a fixed, unmovable buffer, and not into
   // the V8 heap. We can't, and don't, refer to any relocatable addresses
@@ -459,13 +452,13 @@ OS::MemMoveFunction CreateMemMoveFunction() {
       // Special handlers for 9 <= copy_size < 64. No assumptions about
       // alignment or move distance, so all reads must be unaligned and
       // must happen before any writes.
-      Label medium_handlers, f9_16, f17_32, f33_48, f49_63;
+      Label f9_16, f17_32, f33_48, f49_63;
 
       __ bind(&f9_16);
-      __ movsd(xmm0, Operand(src, 0));
-      __ movsd(xmm1, Operand(src, count, times_1, -8));
-      __ movsd(Operand(dst, 0), xmm0);
-      __ movsd(Operand(dst, count, times_1, -8), xmm1);
+      __ movdbl(xmm0, Operand(src, 0));
+      __ movdbl(xmm1, Operand(src, count, times_1, -8));
+      __ movdbl(Operand(dst, 0), xmm0);
+      __ movdbl(Operand(dst, count, times_1, -8), xmm1);
       MemMoveEmitPopAndReturn(&masm);
 
       __ bind(&f17_32);
@@ -495,11 +488,11 @@ OS::MemMoveFunction CreateMemMoveFunction() {
       __ movdqu(Operand(dst, count, times_1, -0x10), xmm3);
       MemMoveEmitPopAndReturn(&masm);
 
-      __ bind(&medium_handlers);
-      __ dd(conv.address(&f9_16));
-      __ dd(conv.address(&f17_32));
-      __ dd(conv.address(&f33_48));
-      __ dd(conv.address(&f49_63));
+      medium_handlers = new size_t[4];
+      medium_handlers[0] = reinterpret_cast<intptr_t>(buffer) + f9_16.pos();
+      medium_handlers[1] = reinterpret_cast<intptr_t>(buffer) + f17_32.pos();
+      medium_handlers[2] = reinterpret_cast<intptr_t>(buffer) + f33_48.pos();
+      medium_handlers[3] = reinterpret_cast<intptr_t>(buffer) + f49_63.pos();
 
       __ bind(&medium_size);  // Entry point into this block.
       __ mov(eax, count);
@@ -512,12 +505,13 @@ OS::MemMoveFunction CreateMemMoveFunction() {
         __ int3();
         __ bind(&ok);
       }
-      __ mov(eax, Operand(eax, times_4, conv.address(&medium_handlers)));
+      __ mov(eax, Operand(eax, times_4,
+                          reinterpret_cast<intptr_t>(medium_handlers)));
       __ jmp(eax);
     }
     {
       // Specialized copiers for copy_size <= 8 bytes.
-      Label small_handlers, f0, f1, f2, f3, f4, f5_8;
+      Label f0, f1, f2, f3, f4, f5_8;
       __ bind(&f0);
       MemMoveEmitPopAndReturn(&masm);
 
@@ -550,16 +544,16 @@ OS::MemMoveFunction CreateMemMoveFunction() {
       __ mov(Operand(dst, count, times_1, -4), edx);
       MemMoveEmitPopAndReturn(&masm);
 
-      __ bind(&small_handlers);
-      __ dd(conv.address(&f0));
-      __ dd(conv.address(&f1));
-      __ dd(conv.address(&f2));
-      __ dd(conv.address(&f3));
-      __ dd(conv.address(&f4));
-      __ dd(conv.address(&f5_8));
-      __ dd(conv.address(&f5_8));
-      __ dd(conv.address(&f5_8));
-      __ dd(conv.address(&f5_8));
+      small_handlers = new size_t[9];
+      small_handlers[0] = reinterpret_cast<intptr_t>(buffer) + f0.pos();
+      small_handlers[1] = reinterpret_cast<intptr_t>(buffer) + f1.pos();
+      small_handlers[2] = reinterpret_cast<intptr_t>(buffer) + f2.pos();
+      small_handlers[3] = reinterpret_cast<intptr_t>(buffer) + f3.pos();
+      small_handlers[4] = reinterpret_cast<intptr_t>(buffer) + f4.pos();
+      small_handlers[5] = reinterpret_cast<intptr_t>(buffer) + f5_8.pos();
+      small_handlers[6] = reinterpret_cast<intptr_t>(buffer) + f5_8.pos();
+      small_handlers[7] = reinterpret_cast<intptr_t>(buffer) + f5_8.pos();
+      small_handlers[8] = reinterpret_cast<intptr_t>(buffer) + f5_8.pos();
 
       __ bind(&small_size);  // Entry point into this block.
       if (FLAG_debug_code) {
@@ -569,7 +563,8 @@ OS::MemMoveFunction CreateMemMoveFunction() {
         __ int3();
         __ bind(&ok);
       }
-      __ mov(eax, Operand(count, times_4, conv.address(&small_handlers)));
+      __ mov(eax, Operand(count, times_4,
+                          reinterpret_cast<intptr_t>(small_handlers)));
       __ jmp(eax);
     }
   } else {
@@ -656,7 +651,7 @@ OS::MemMoveFunction CreateMemMoveFunction() {
 
 void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
     MacroAssembler* masm, AllocationSiteMode mode,
-    Label* allocation_memento_found) {
+    Label* allocation_site_info_found) {
   // ----------- S t a t e -------------
   //  -- eax    : value
   //  -- ebx    : target map
@@ -665,8 +660,9 @@ void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
   //  -- esp[0] : return address
   // -----------------------------------
   if (mode == TRACK_ALLOCATION_SITE) {
-    ASSERT(allocation_memento_found != NULL);
-    __ JumpIfJSArrayHasAllocationMemento(edx, edi, allocation_memento_found);
+    ASSERT(allocation_site_info_found != NULL);
+    __ TestJSArrayForAllocationSiteInfo(edx, edi);
+    __ j(equal, allocation_site_info_found);
   }
 
   // Set transitioned map.
@@ -693,7 +689,8 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   Label loop, entry, convert_hole, gc_required, only_change_map;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    __ JumpIfJSArrayHasAllocationMemento(edx, edi, fail);
+    __ TestJSArrayForAllocationSiteInfo(edx, edi);
+    __ j(equal, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -741,7 +738,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   XMMRegister the_hole_nan = xmm1;
   if (CpuFeatures::IsSupported(SSE2)) {
     CpuFeatureScope use_sse2(masm, SSE2);
-    __ movsd(the_hole_nan,
+    __ movdbl(the_hole_nan,
               Operand::StaticVariable(canonical_the_hole_nan_reference));
   }
   __ jmp(&entry);
@@ -766,8 +763,8 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   __ SmiUntag(ebx);
   if (CpuFeatures::IsSupported(SSE2)) {
     CpuFeatureScope fscope(masm, SSE2);
-    __ Cvtsi2sd(xmm0, ebx);
-    __ movsd(FieldOperand(eax, edi, times_4, FixedDoubleArray::kHeaderSize),
+    __ cvtsi2sd(xmm0, ebx);
+    __ movdbl(FieldOperand(eax, edi, times_4, FixedDoubleArray::kHeaderSize),
               xmm0);
   } else {
     __ push(ebx);
@@ -782,12 +779,12 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
 
   if (FLAG_debug_code) {
     __ cmp(ebx, masm->isolate()->factory()->the_hole_value());
-    __ Assert(equal, kObjectFoundInSmiOnlyArray);
+    __ Assert(equal, "object found in smi-only array");
   }
 
   if (CpuFeatures::IsSupported(SSE2)) {
     CpuFeatureScope use_sse2(masm, SSE2);
-    __ movsd(FieldOperand(eax, edi, times_4, FixedDoubleArray::kHeaderSize),
+    __ movdbl(FieldOperand(eax, edi, times_4, FixedDoubleArray::kHeaderSize),
               the_hole_nan);
   } else {
     __ fld_d(Operand::StaticVariable(canonical_the_hole_nan_reference));
@@ -831,7 +828,8 @@ void ElementsTransitionGenerator::GenerateDoubleToObject(
   Label loop, entry, convert_hole, gc_required, only_change_map, success;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    __ JumpIfJSArrayHasAllocationMemento(edx, edi, fail);
+    __ TestJSArrayForAllocationSiteInfo(edx, edi);
+    __ j(equal, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -896,9 +894,9 @@ void ElementsTransitionGenerator::GenerateDoubleToObject(
   // edx: new heap number
   if (CpuFeatures::IsSupported(SSE2)) {
     CpuFeatureScope fscope(masm, SSE2);
-    __ movsd(xmm0,
+    __ movdbl(xmm0,
               FieldOperand(edi, ebx, times_4, FixedDoubleArray::kHeaderSize));
-    __ movsd(FieldOperand(edx, HeapNumber::kValueOffset), xmm0);
+    __ movdbl(FieldOperand(edx, HeapNumber::kValueOffset), xmm0);
   } else {
     __ mov(esi, FieldOperand(edi, ebx, times_4, FixedDoubleArray::kHeaderSize));
     __ mov(FieldOperand(edx, HeapNumber::kValueOffset), esi);
@@ -1013,7 +1011,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
     // Assert that we do not have a cons or slice (indirect strings) here.
     // Sequential strings have already been ruled out.
     __ test(result, Immediate(kIsIndirectStringMask));
-    __ Assert(zero, kExternalStringExpectedButNotFound);
+    __ Assert(zero, "external string expected, but not found");
   }
   // Rule out short external strings.
   STATIC_CHECK(kShortExternalStringTag != 0);
@@ -1078,20 +1076,20 @@ void MathExpGenerator::EmitMathExp(MacroAssembler* masm,
 
   Label done;
 
-  __ movsd(double_scratch, ExpConstant(0));
+  __ movdbl(double_scratch, ExpConstant(0));
   __ xorpd(result, result);
   __ ucomisd(double_scratch, input);
   __ j(above_equal, &done);
   __ ucomisd(input, ExpConstant(1));
-  __ movsd(result, ExpConstant(2));
+  __ movdbl(result, ExpConstant(2));
   __ j(above_equal, &done);
-  __ movsd(double_scratch, ExpConstant(3));
-  __ movsd(result, ExpConstant(4));
+  __ movdbl(double_scratch, ExpConstant(3));
+  __ movdbl(result, ExpConstant(4));
   __ mulsd(double_scratch, input);
   __ addsd(double_scratch, result);
   __ movd(temp2, double_scratch);
   __ subsd(double_scratch, result);
-  __ movsd(result, ExpConstant(6));
+  __ movdbl(result, ExpConstant(6));
   __ mulsd(double_scratch, ExpConstant(5));
   __ subsd(double_scratch, input);
   __ subsd(result, double_scratch);
@@ -1108,7 +1106,7 @@ void MathExpGenerator::EmitMathExp(MacroAssembler* masm,
   __ shl(temp1, 20);
   __ movd(input, temp1);
   __ pshufd(input, input, static_cast<uint8_t>(0xe1));  // Order: 11 10 00 01
-  __ movsd(double_scratch, Operand::StaticArray(
+  __ movdbl(double_scratch, Operand::StaticArray(
       temp2, times_8, ExternalReference::math_exp_log_table()));
   __ por(input, double_scratch);
   __ mulsd(result, input);
@@ -1117,6 +1115,7 @@ void MathExpGenerator::EmitMathExp(MacroAssembler* masm,
 
 #undef __
 
+static const int kNoCodeAgeSequenceLength = 5;
 
 static byte* GetNoCodeAgeSequence(uint32_t* length) {
   static bool initialized = false;
@@ -1149,7 +1148,7 @@ bool Code::IsYoungSequence(byte* sequence) {
 void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
                                MarkingParity* parity) {
   if (IsYoungSequence(sequence)) {
-    *age = kNoAgeCodeAge;
+    *age = kNoAge;
     *parity = NO_MARKING_PARITY;
   } else {
     sequence++;  // Skip the kCallOpcode byte
@@ -1161,17 +1160,16 @@ void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
 }
 
 
-void Code::PatchPlatformCodeAge(Isolate* isolate,
-                                byte* sequence,
+void Code::PatchPlatformCodeAge(byte* sequence,
                                 Code::Age age,
                                 MarkingParity parity) {
   uint32_t young_length;
   byte* young_sequence = GetNoCodeAgeSequence(&young_length);
-  if (age == kNoAgeCodeAge) {
+  if (age == kNoAge) {
     CopyBytes(sequence, young_sequence, young_length);
     CPU::FlushICache(sequence, young_length);
   } else {
-    Code* stub = GetCodeAgeStub(isolate, age, parity);
+    Code* stub = GetCodeAgeStub(age, parity);
     CodePatcher patcher(sequence, young_length);
     patcher.masm()->call(stub->instruction_start(), RelocInfo::NONE32);
   }

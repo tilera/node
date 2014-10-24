@@ -67,4 +67,5 @@ assert.equal(r2.rli.terminal, false);
 assert.equal(r2.useColors, true);
 assert.equal(r2.useGlobal, true);
 assert.equal(r2.ignoreUndefined, true);
+assert.equal(r2.eval, evaler);
 assert.equal(r2.writer, writer);

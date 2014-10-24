@@ -29,7 +29,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_TILEGX
+#if defined(V8_TARGET_ARCH_TILEGX)
 
 #include "codegen.h"
 #include "debug.h"
@@ -60,7 +60,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
   // li and Call pseudo-instructions emit two instructions each.
   patcher.masm()->li(v8::internal::t9,
       Operand(reinterpret_cast<int64_t>(
-          debug_info_->GetIsolate()->debug()->debug_break_return()->entry())));
+          Isolate::Current()->debug()->debug_break_return()->entry())));
   patcher.masm()->Call(v8::internal::t9);
   patcher.masm()->nop();
   patcher.masm()->nop();
@@ -105,7 +105,7 @@ void BreakLocationIterator::SetDebugBreakAtSlot() {
   //   call t9          (jalr t9 / nop instruction pair)
   CodePatcher patcher(rinfo()->pc(), Assembler::kDebugBreakSlotInstructions);
   patcher.masm()->li(v8::internal::t9, Operand(reinterpret_cast<int64_t>(
-      debug_info_->GetIsolate()->debug()->debug_break_slot()->entry())));
+      Isolate::Current()->debug()->debug_break_slot()->entry())));
   patcher.masm()->Call(v8::internal::t9);
 }
 
@@ -143,7 +143,7 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
           if (FLAG_debug_code) {
             __ And(at, reg, 0xc0000000);
             __ Assert(
-                eq, kUnableToEncodeValueAsSmi, at, Operand(zero));
+                eq, "Unable to encode value as smi", at, Operand(zero));
           }
           __ sll(reg, reg, 32);
         }
@@ -325,12 +325,12 @@ void Debug::GenerateSlotDebugBreak(MacroAssembler* masm) {
 
 
 void Debug::GeneratePlainReturnLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnTileGX);
+  masm->Abort("LiveEdit frame dropping is not supported on TileGX");
 }
 
 
 void Debug::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnTileGX);
+  masm->Abort("LiveEdit frame dropping is not supported on TileGX");
 }
 
 

@@ -5,8 +5,7 @@
     # this is only relevant when dtrace is enabled and libuv is a child project
     # as it's necessary to correctly locate the object files for post
     # processing.
-    # XXX gyp is quite sensitive about paths with double / they don't normalize
-    'uv_parent_path': '/',
+    'uv_parent_path': '',
   },
 
   'target_defaults': {
@@ -15,12 +14,12 @@
         'defines': [
           '_LARGEFILE_SOURCE',
           '_FILE_OFFSET_BITS=64',
+          '_GNU_SOURCE',
         ],
         'conditions': [
           ['OS=="solaris"', {
             'cflags': [ '-pthreads' ],
-          }],
-          ['OS not in "solaris android"', {
+          }, {
             'cflags': [ '-pthread' ],
           }],
         ],
@@ -34,6 +33,7 @@
       'type': '<(library)',
       'include_dirs': [
         'include',
+        'include/uv-private',
         'src/',
       ],
       'direct_dependent_settings': {
@@ -59,11 +59,10 @@
       'sources': [
         'common.gypi',
         'include/uv.h',
-        'include/tree.h',
-        'include/uv-errno.h',
+        'include/uv-private/ngx-queue.h',
+        'include/uv-private/tree.h',
         'src/fs-poll.c',
         'src/inet.c',
-        'src/queue.h',
         'src/uv-common.c',
         'src/uv-common.h',
         'src/version.c'
@@ -75,7 +74,7 @@
             '_GNU_SOURCE',
           ],
           'sources': [
-            'include/uv-win.h',
+            'include/uv-private/uv-win.h',
             'src/win/async.c',
             'src/win/atomicops-inl.h',
             'src/win/core.c',
@@ -128,15 +127,15 @@
             '-Wno-unused-parameter',
           ],
           'sources': [
-            'include/uv-unix.h',
-            'include/uv-linux.h',
-            'include/uv-sunos.h',
-            'include/uv-darwin.h',
-            'include/uv-bsd.h',
+            'include/uv-private/uv-unix.h',
+            'include/uv-private/uv-linux.h',
+            'include/uv-private/uv-sunos.h',
+            'include/uv-private/uv-darwin.h',
+            'include/uv-private/uv-bsd.h',
             'src/unix/async.c',
-            'src/unix/atomic-ops.h',
             'src/unix/core.c',
             'src/unix/dl.c',
+            'src/unix/error.c',
             'src/unix/fs.c',
             'src/unix/getaddrinfo.c',
             'src/unix/internal.h',
@@ -146,7 +145,6 @@
             'src/unix/poll.c',
             'src/unix/process.c',
             'src/unix/signal.c',
-            'src/unix/spinlock.h',
             'src/unix/stream.c',
             'src/unix/tcp.c',
             'src/unix/thread.c',
@@ -160,8 +158,7 @@
             'conditions': [
               ['OS=="solaris"', {
                 'ldflags': [ '-pthreads' ],
-              }],
-              ['OS != "solaris" and OS != "android"', {
+              }, {
                 'ldflags': [ '-pthread' ],
               }],
             ],
@@ -174,12 +171,12 @@
               'link_settings': {
                 # Must correspond with UV_VERSION_MAJOR and UV_VERSION_MINOR
                 # in src/version.c
-                'libraries': [ '-Wl,-soname,libuv.so.0.11' ],
+                'libraries': [ '-Wl,-soname,libuv.so.0.10' ],
               },
             }],
           ],
         }],
-        [ 'OS in "linux mac android"', {
+        [ 'OS=="linux" or OS=="mac"', {
           'sources': [ 'src/unix/proctitle.c' ],
         }],
         [ 'OS=="mac"', {
@@ -188,6 +185,13 @@
             'src/unix/fsevents.c',
             'src/unix/darwin-proctitle.c',
           ],
+          'link_settings': {
+            'libraries': [
+              '$(SDKROOT)/System/Library/Frameworks/Foundation.framework',
+              '$(SDKROOT)/System/Library/Frameworks/CoreServices.framework',
+              '$(SDKROOT)/System/Library/Frameworks/ApplicationServices.framework',
+            ],
+          },
           'defines': [
             '_DARWIN_USE_64_BIT_INODE=1',
           ]
@@ -206,18 +210,6 @@
           ],
           'link_settings': {
             'libraries': [ '-ldl', '-lrt' ],
-          },
-        }],
-        [ 'OS=="android"', {
-          'sources': [
-            'src/unix/linux-core.c',
-            'src/unix/linux-inotify.c',
-            'src/unix/linux-syscalls.c',
-            'src/unix/linux-syscalls.h',
-            'src/unix/pthread-fixes.c',
-          ],
-          'link_settings': {
-            'libraries': [ '-ldl' ],
           },
         }],
         [ 'OS=="solaris"', {
@@ -268,17 +260,13 @@
         ['library=="shared_library"', {
           'defines': [ 'BUILDING_UV_SHARED=1' ]
         }],
-        # FIXME(bnoordhuis or tjfontaine) Unify this, it's extremely ugly.
         ['uv_use_dtrace=="true"', {
           'defines': [ 'HAVE_DTRACE=1' ],
           'dependencies': [ 'uv_dtrace_header' ],
           'include_dirs': [ '<(SHARED_INTERMEDIATE_DIR)' ],
           'conditions': [
-            [ 'OS not in "mac linux"', {
-              'sources': [ 'src/unix/dtrace.c' ],
-            }],
-            [ 'OS=="linux"', {
-              'sources': [ '<(SHARED_INTERMEDIATE_DIR)/dtrace.o' ]
+            ['OS != "mac"', {
+              'sources': ['src/unix/dtrace.c' ],
             }],
           ],
         }],
@@ -297,13 +285,11 @@
         'test/runner.h',
         'test/test-get-loadavg.c',
         'test/task.h',
+        'test/test-util.c',
         'test/test-active.c',
         'test/test-async.c',
-        'test/test-async-null-cb.c',
         'test/test-callback-stack.c',
         'test/test-callback-order.c',
-        'test/test-close-fd.c',
-        'test/test-close-order.c',
         'test/test-connection-fail.c',
         'test/test-cwd-and-chdir.c',
         'test/test-delayed-accept.c',
@@ -323,9 +309,7 @@
         'test/test-ipc-send-recv.c',
         'test/test-list.h',
         'test/test-loop-handles.c',
-        'test/test-loop-alive.c',
         'test/test-loop-stop.c',
-        'test/test-loop-time.c',
         'test/test-walk-handles.c',
         'test/test-watcher-cross-stop.c',
         'test/test-multiple-listen.c',
@@ -345,6 +329,7 @@
         'test/test-semaphore.c',
         'test/test-shutdown-close.c',
         'test/test-shutdown-eof.c',
+        'test/test-shutdown-twice.c',
         'test/test-signal.c',
         'test/test-signal-multiple-loops.c',
         'test/test-spawn.c',
@@ -364,7 +349,6 @@
         'test/test-tcp-open.c',
         'test/test-tcp-write-to-half-open-connection.c',
         'test/test-tcp-writealot.c',
-        'test/test-tcp-try-write.c',
         'test/test-tcp-unexpected-read.c',
         'test/test-tcp-read-stop.c',
         'test/test-threadpool.c',
@@ -385,8 +369,6 @@
         'test/test-udp-multicast-join.c',
         'test/test-dlerror.c',
         'test/test-udp-multicast-ttl.c',
-        'test/test-ip4-addr.c',
-        'test/test-ip6-addr.c',
       ],
       'conditions': [
         [ 'OS=="win"', {
@@ -492,39 +474,26 @@
       ],
     },
 
-    # FIXME(bnoordhuis or tjfontaine) Unify this, it's extremely ugly.
     {
       'target_name': 'uv_dtrace_provider',
       'type': 'none',
       'conditions': [
-        [ 'uv_use_dtrace=="true" and OS not in "mac linux"', {
+        [ 'uv_use_dtrace=="true" and OS!="mac"', {
           'actions': [
             {
               'action_name': 'uv_dtrace_o',
               'inputs': [
                 'src/unix/uv-dtrace.d',
-                '<(PRODUCT_DIR)/obj.target/libuv<(uv_parent_path)src/unix/core.o',
+                '<(PRODUCT_DIR)/obj.target/libuv/<(uv_parent_path)/src/unix/core.o',
               ],
               'outputs': [
-                '<(PRODUCT_DIR)/obj.target/libuv<(uv_parent_path)src/unix/dtrace.o',
+                '<(PRODUCT_DIR)/obj.target/libuv/<(uv_parent_path)/src/unix/dtrace.o',
               ],
               'action': [ 'dtrace', '-G', '-xnolibs', '-s', '<@(_inputs)',
                 '-o', '<@(_outputs)' ]
             }
           ]
-        }],
-        [ 'uv_use_dtrace=="true" and OS=="linux"', {
-          'actions': [
-            {
-              'action_name': 'uv_dtrace_o',
-              'inputs': [ 'src/unix/uv-dtrace.d' ],
-              'outputs': [ '<(SHARED_INTERMEDIATE_DIR)/dtrace.o' ],
-              'action': [
-                'dtrace', '-C', '-G', '-s', '<@(_inputs)', '-o', '<@(_outputs)'
-              ],
-            }
-          ]
-        }],
+        } ]
       ]
     },
 

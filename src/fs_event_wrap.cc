@@ -19,41 +19,27 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
-#include "env.h"
-#include "env-inl.h"
-#include "util.h"
-#include "util-inl.h"
 #include "node.h"
 #include "handle_wrap.h"
+#include "util.h"
 
 #include <stdlib.h>
 
+using namespace v8;
+
 namespace node {
 
-using v8::Context;
-using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::Handle;
-using v8::HandleScope;
-using v8::Integer;
-using v8::Local;
-using v8::Object;
-using v8::String;
-using v8::Value;
+static Persistent<String> onchange_sym;
 
 class FSEventWrap: public HandleWrap {
- public:
-  static void Initialize(Handle<Object> target,
-                         Handle<Value> unused,
-                         Handle<Context> context);
-  static void New(const FunctionCallbackInfo<Value>& args);
-  static void Start(const FunctionCallbackInfo<Value>& args);
-  static void Close(const FunctionCallbackInfo<Value>& args);
+public:
+  static void Initialize(Handle<Object> target);
+  static Handle<Value> New(const Arguments& args);
+  static Handle<Value> Start(const Arguments& args);
+  static Handle<Value> Close(const Arguments& args);
 
- private:
-  FSEventWrap(Environment* env, Handle<Object> object);
+private:
+  FSEventWrap(Handle<Object> object);
   virtual ~FSEventWrap();
 
   static void OnEvent(uv_fs_event_t* handle, const char* filename, int events,
@@ -64,8 +50,9 @@ class FSEventWrap: public HandleWrap {
 };
 
 
-FSEventWrap::FSEventWrap(Environment* env, Handle<Object> object)
-    : HandleWrap(env, object, reinterpret_cast<uv_handle_t*>(&handle_)) {
+FSEventWrap::FSEventWrap(Handle<Object> object): HandleWrap(object,
+                                                    (uv_handle_t*)&handle_) {
+  handle_.data = static_cast<void*>(this);
   initialized_ = false;
 }
 
@@ -75,72 +62,67 @@ FSEventWrap::~FSEventWrap() {
 }
 
 
-void FSEventWrap::Initialize(Handle<Object> target,
-                             Handle<Value> unused,
-                             Handle<Context> context) {
+void FSEventWrap::Initialize(Handle<Object> target) {
+  HandleWrap::Initialize(target);
+
+  HandleScope scope;
+
   Local<FunctionTemplate> t = FunctionTemplate::New(New);
   t->InstanceTemplate()->SetInternalFieldCount(1);
-  t->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "FSEvent"));
+  t->SetClassName(String::NewSymbol("FSEvent"));
 
   NODE_SET_PROTOTYPE_METHOD(t, "start", Start);
   NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
-  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "FSEvent"), t->GetFunction());
+  target->Set(String::NewSymbol("FSEvent"),
+              Persistent<FunctionTemplate>::New(t)->GetFunction());
 }
 
 
-void FSEventWrap::New(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> FSEventWrap::New(const Arguments& args) {
+  HandleScope scope;
+
   assert(args.IsConstructCall());
-  HandleScope handle_scope(args.GetIsolate());
-  Environment* env = Environment::GetCurrent(args.GetIsolate());
-  new FSEventWrap(env, args.This());
+  new FSEventWrap(args.This());
+
+  return scope.Close(args.This());
 }
 
 
-void FSEventWrap::Start(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> FSEventWrap::Start(const Arguments& args) {
+  HandleScope scope;
 
-  FSEventWrap* wrap = Unwrap<FSEventWrap>(args.This());
+  UNWRAP(FSEventWrap)
 
   if (args.Length() < 1 || !args[0]->IsString()) {
-    return ThrowTypeError("Bad arguments");
+    return ThrowException(Exception::TypeError(String::New("Bad arguments")));
   }
 
-  String::Utf8Value path(args[0]);
+  node::Utf8Value path(args[0]);
 
-  unsigned int flags = 0;
-  if (args[2]->IsTrue())
-    flags |= UV_FS_EVENT_RECURSIVE;
-
-  int err = uv_fs_event_init(wrap->env()->event_loop(), &wrap->handle_);
-  if (err == 0) {
-    wrap->initialized_ = true;
-
-    err = uv_fs_event_start(&wrap->handle_, OnEvent, *path, flags);
-
-    if (err == 0) {
-      // Check for persistent argument
-      if (!args[1]->IsTrue()) {
-        uv_unref(reinterpret_cast<uv_handle_t*>(&wrap->handle_));
-      }
-    } else {
-      FSEventWrap::Close(args);
+  int r = uv_fs_event_init(uv_default_loop(), &wrap->handle_, *path, OnEvent, 0);
+  if (r == 0) {
+    // Check for persistent argument
+    if (!args[1]->IsTrue()) {
+      uv_unref(reinterpret_cast<uv_handle_t*>(&wrap->handle_));
     }
+    wrap->initialized_ = true;
+  } else {
+    SetErrno(uv_last_error(uv_default_loop()));
   }
 
-  args.GetReturnValue().Set(err);
+  return scope.Close(Integer::New(r));
 }
 
 
 void FSEventWrap::OnEvent(uv_fs_event_t* handle, const char* filename,
     int events, int status) {
+  HandleScope scope;
+  Local<String> eventStr;
+
   FSEventWrap* wrap = static_cast<FSEventWrap*>(handle->data);
-  Environment* env = wrap->env();
 
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
-
-  assert(wrap->persistent().IsEmpty() == false);
+  assert(wrap->object_.IsEmpty() == false);
 
   // We're in a bind here. libuv can set both UV_RENAME and UV_CHANGE but
   // the Node API only lets us pass a single event to JS land.
@@ -153,44 +135,56 @@ void FSEventWrap::OnEvent(uv_fs_event_t* handle, const char* filename,
   // For now, ignore the UV_CHANGE event if UV_RENAME is also set. Make the
   // assumption that a rename implicitly means an attribute change. Not too
   // unreasonable, right? Still, we should revisit this before v1.0.
-  Local<String> event_string;
   if (status) {
-    event_string = String::Empty(node_isolate);
-  } else if (events & UV_RENAME) {
-    event_string = env->rename_string();
-  } else if (events & UV_CHANGE) {
-    event_string = env->change_string();
-  } else {
+    SetErrno(uv_last_error(uv_default_loop()));
+    eventStr = String::Empty();
+  }
+  else if (events & UV_RENAME) {
+    eventStr = String::New("rename");
+  }
+  else if (events & UV_CHANGE) {
+    eventStr = String::New("change");
+  }
+  else {
     assert(0 && "bad fs events flag");
     abort();
   }
 
-  Local<Value> argv[] = {
-    Integer::New(status, node_isolate),
-    event_string,
-    Null(node_isolate)
+  Local<Value> argv[3] = {
+    Integer::New(status),
+    eventStr,
+    filename ? static_cast<Local<Value> >(String::New(filename))
+             : Local<Value>::New(v8::Null())
   };
 
-  if (filename != NULL) {
-    argv[2] = OneByteString(node_isolate, filename);
+  if (onchange_sym.IsEmpty()) {
+    onchange_sym = NODE_PSYMBOL("onchange");
   }
 
-  wrap->MakeCallback(env->onchange_string(), ARRAY_SIZE(argv), argv);
+  MakeCallback(wrap->object_, onchange_sym, ARRAY_SIZE(argv), argv);
 }
 
 
-void FSEventWrap::Close(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> FSEventWrap::Close(const Arguments& args) {
+  HandleScope scope;
 
-  FSEventWrap* wrap = Unwrap<FSEventWrap>(args.This());
+  // Unwrap manually here. The UNWRAP() macro asserts that wrap != NULL.
+  // That usually indicates an error but not here: double closes are possible
+  // and legal, HandleWrap::Close() deals with them the same way.
+  assert(!args.Holder().IsEmpty());
+  assert(args.Holder()->InternalFieldCount() > 0);
+  void* ptr = args.Holder()->GetPointerFromInternalField(0);
+  FSEventWrap* wrap = static_cast<FSEventWrap*>(ptr);
 
-  if (wrap == NULL || wrap->initialized_ == false)
-    return;
+  if (wrap == NULL || wrap->initialized_ == false) {
+    return Undefined();
+  }
   wrap->initialized_ = false;
 
-  HandleWrap::Close(args);
+  return HandleWrap::Close(args);
 }
 
-}  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE(node_fs_event_wrap, node::FSEventWrap::Initialize)
+} // namespace node
+
+NODE_MODULE(node_fs_event_wrap, node::FSEventWrap::Initialize)

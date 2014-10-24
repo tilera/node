@@ -58,7 +58,7 @@ double StringToInt(UnicodeCache* unicode_cache, String* str, int radix);
 // Converts a number into size_t.
 inline size_t NumberToSize(Isolate* isolate,
                            Object* number) {
-  SealHandleScope shs(isolate);
+  NoHandleAllocation hc(isolate);
   if (number->IsSmi()) {
     return Smi::cast(number)->value();
   } else {

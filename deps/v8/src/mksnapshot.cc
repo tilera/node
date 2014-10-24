@@ -43,6 +43,49 @@
 
 using namespace v8;
 
+static const unsigned int kMaxCounters = 256;
+
+// A single counter in a counter collection.
+class Counter {
+ public:
+  static const int kMaxNameSize = 64;
+  int32_t* Bind(const char* name) {
+    int i;
+    for (i = 0; i < kMaxNameSize - 1 && name[i]; i++) {
+      name_[i] = name[i];
+    }
+    name_[i] = '\0';
+    return &counter_;
+  }
+ private:
+  int32_t counter_;
+  uint8_t name_[kMaxNameSize];
+};
+
+
+// A set of counters and associated information.  An instance of this
+// class is stored directly in the memory-mapped counters file if
+// the --save-counters options is used
+class CounterCollection {
+ public:
+  CounterCollection() {
+    magic_number_ = 0xDEADFACE;
+    max_counters_ = kMaxCounters;
+    max_name_size_ = Counter::kMaxNameSize;
+    counters_in_use_ = 0;
+  }
+  Counter* GetNextCounter() {
+    if (counters_in_use_ == kMaxCounters) return NULL;
+    return &counters_[counters_in_use_++];
+  }
+ private:
+  uint32_t magic_number_;
+  uint32_t max_counters_;
+  uint32_t max_name_size_;
+  uint32_t counters_in_use_;
+  Counter counters_[kMaxCounters];
+};
+
 
 class Compressor {
  public:
@@ -129,8 +172,7 @@ class CppByteSink : public PartialSnapshotSink {
       int data_space_used,
       int code_space_used,
       int map_space_used,
-      int cell_space_used,
-      int property_cell_space_used) {
+      int cell_space_used) {
     fprintf(fp_,
             "const int Snapshot::%snew_space_used_ = %d;\n",
             prefix,
@@ -155,10 +197,6 @@ class CppByteSink : public PartialSnapshotSink {
             "const int Snapshot::%scell_space_used_ = %d;\n",
             prefix,
             cell_space_used);
-    fprintf(fp_,
-            "const int Snapshot::%sproperty_cell_space_used_ = %d;\n",
-            prefix,
-            property_cell_space_used);
   }
 
   void WritePartialSnapshot() {
@@ -266,9 +304,6 @@ void DumpException(Handle<Message> message) {
 
 
 int main(int argc, char** argv) {
-  V8::InitializeICU();
-  i::Isolate::SetCrashIfDefaultIsolateInitialized();
-
   // By default, log code create information in the snapshot.
   i::FLAG_log_code = true;
 
@@ -288,28 +323,19 @@ int main(int argc, char** argv) {
     exit(1);
   }
 #endif
-  i::FLAG_logfile_per_isolate = false;
-
-  Isolate* isolate = v8::Isolate::New();
-  isolate->Enter();
-  i::Isolate* internal_isolate = reinterpret_cast<i::Isolate*>(isolate);
-  i::Serializer::Enable(internal_isolate);
-  Persistent<Context> context;
-  {
-    HandleScope handle_scope(isolate);
-    context.Reset(isolate, Context::New(isolate));
-  }
-
+  i::Serializer::Enable();
+  Persistent<Context> context = v8::Context::New();
   if (context.IsEmpty()) {
     fprintf(stderr,
             "\nException thrown while compiling natives - see above.\n\n");
     exit(1);
   }
+  Isolate* isolate = context->GetIsolate();
   if (i::FLAG_extra_code != NULL) {
+    context->Enter();
     // Capture 100 frames if anything happens.
     V8::SetCaptureStackTraceForUncaughtExceptions(true, 100);
     HandleScope scope(isolate);
-    v8::Context::Scope(v8::Local<v8::Context>::New(isolate, context));
     const char* name = i::FLAG_extra_code;
     FILE* file = i::OS::FOpen(name, "rb");
     if (file == NULL) {
@@ -346,27 +372,26 @@ int main(int argc, char** argv) {
       DumpException(try_catch.Message());
       exit(1);
     }
+    context->Exit();
   }
   // Make sure all builtin scripts are cached.
   { HandleScope scope(isolate);
     for (int i = 0; i < i::Natives::GetBuiltinsCount(); i++) {
-      internal_isolate->bootstrapper()->NativesSourceLookup(i);
+      i::Isolate::Current()->bootstrapper()->NativesSourceLookup(i);
     }
   }
   // If we don't do this then we end up with a stray root pointing at the
   // context even after we have disposed of the context.
-  internal_isolate->heap()->CollectAllGarbage(
-      i::Heap::kNoGCFlags, "mksnapshot");
-  i::Object* raw_context = *v8::Utils::OpenPersistent(context);
-  context.Dispose();
+  HEAP->CollectAllGarbage(i::Heap::kNoGCFlags, "mksnapshot");
+  i::Object* raw_context = *(v8::Utils::OpenHandle(*context));
+  context.Dispose(context->GetIsolate());
   CppByteSink sink(argv[1]);
   // This results in a somewhat smaller snapshot, probably because it gets rid
   // of some things that are cached between garbage collections.
-  i::StartupSerializer ser(internal_isolate, &sink);
+  i::StartupSerializer ser(&sink);
   ser.SerializeStrongReferences();
 
-  i::PartialSerializer partial_ser(
-      internal_isolate, &ser, sink.partial_sink());
+  i::PartialSerializer partial_ser(&ser, sink.partial_sink());
   partial_ser.Serialize(&raw_context);
 
   ser.SerializeWeakReferences();
@@ -388,8 +413,7 @@ int main(int argc, char** argv) {
       partial_ser.CurrentAllocationAddress(i::OLD_DATA_SPACE),
       partial_ser.CurrentAllocationAddress(i::CODE_SPACE),
       partial_ser.CurrentAllocationAddress(i::MAP_SPACE),
-      partial_ser.CurrentAllocationAddress(i::CELL_SPACE),
-      partial_ser.CurrentAllocationAddress(i::PROPERTY_CELL_SPACE));
+      partial_ser.CurrentAllocationAddress(i::CELL_SPACE));
   sink.WriteSpaceUsed(
       "",
       ser.CurrentAllocationAddress(i::NEW_SPACE),
@@ -397,7 +421,6 @@ int main(int argc, char** argv) {
       ser.CurrentAllocationAddress(i::OLD_DATA_SPACE),
       ser.CurrentAllocationAddress(i::CODE_SPACE),
       ser.CurrentAllocationAddress(i::MAP_SPACE),
-      ser.CurrentAllocationAddress(i::CELL_SPACE),
-      ser.CurrentAllocationAddress(i::PROPERTY_CELL_SPACE));
+      ser.CurrentAllocationAddress(i::CELL_SPACE));
   return 0;
 }

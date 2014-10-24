@@ -57,7 +57,7 @@ class ProgressIndicator(object):
   def AboutToRun(self, test):
     pass
 
-  def HasRun(self, test, has_unexpected_output):
+  def HasRun(self, test):
     pass
 
   def PrintFailureHeader(self, test):
@@ -111,8 +111,8 @@ class VerboseProgressIndicator(SimpleProgressIndicator):
     print 'Starting %s...' % test.GetLabel()
     sys.stdout.flush()
 
-  def HasRun(self, test, has_unexpected_output):
-    if has_unexpected_output:
+  def HasRun(self, test):
+    if test.suite.HasUnexpectedOutput(test):
       if test.output.HasCrashed():
         outcome = 'CRASH'
       else:
@@ -124,11 +124,11 @@ class VerboseProgressIndicator(SimpleProgressIndicator):
 
 class DotsProgressIndicator(SimpleProgressIndicator):
 
-  def HasRun(self, test, has_unexpected_output):
+  def HasRun(self, test):
     total = self.runner.succeeded + len(self.runner.failed)
     if (total > 1) and (total % 50 == 1):
       sys.stdout.write('\n')
-    if has_unexpected_output:
+    if test.suite.HasUnexpectedOutput(test):
       if test.output.HasCrashed():
         sys.stdout.write('C')
         sys.stdout.flush()
@@ -159,8 +159,8 @@ class CompactProgressIndicator(ProgressIndicator):
   def AboutToRun(self, test):
     self.PrintProgress(test.GetLabel())
 
-  def HasRun(self, test, has_unexpected_output):
-    if has_unexpected_output:
+  def HasRun(self, test):
+    if test.suite.HasUnexpectedOutput(test):
       self.ClearLine(self.last_status_length)
       self.PrintFailureHeader(test)
       stdout = test.output.stdout.strip()
@@ -255,10 +255,10 @@ class JUnitTestProgressIndicator(ProgressIndicator):
   def AboutToRun(self, test):
     self.progress_indicator.AboutToRun(test)
 
-  def HasRun(self, test, has_unexpected_output):
-    self.progress_indicator.HasRun(test, has_unexpected_output)
+  def HasRun(self, test):
+    self.progress_indicator.HasRun(test)
     fail_text = ""
-    if has_unexpected_output:
+    if test.suite.HasUnexpectedOutput(test):
       stdout = test.output.stdout.strip()
       if len(stdout):
         fail_text += "stdout:\n%s\n" % stdout

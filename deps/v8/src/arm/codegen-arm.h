@@ -44,8 +44,8 @@ enum TypeofState { INSIDE_TYPEOF, NOT_INSIDE_TYPEOF };
 
 class CodeGenerator: public AstVisitor {
  public:
-  explicit CodeGenerator(Isolate* isolate) {
-    InitializeAstVisitor(isolate);
+  CodeGenerator() {
+    InitializeAstVisitor();
   }
 
   static bool MakeCode(CompilationInfo* info);
@@ -61,7 +61,7 @@ class CodeGenerator: public AstVisitor {
   // Print the code after compiling it.
   static void PrintCode(Handle<Code> code, CompilationInfo* info);
 
-  static bool ShouldGenerateLog(Isolate* isolate, Expression* type);
+  static bool ShouldGenerateLog(Expression* type);
 
   static void SetFunctionInfo(Handle<JSFunction> fun,
                               FunctionLiteral* lit,
@@ -97,7 +97,6 @@ class StringCharLoadGenerator : public AllStatic {
 
 class MathExpGenerator : public AllStatic {
  public:
-  // Register input isn't modified. All other registers are clobbered.
   static void EmitMathExp(MacroAssembler* masm,
                           DwVfpRegister input,
                           DwVfpRegister result,

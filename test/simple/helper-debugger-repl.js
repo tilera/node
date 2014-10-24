@@ -19,7 +19,7 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-process.env.NODE_DEBUGGER_TIMEOUT = 2000;
+process.env.NODE_DEBUGGER_TIMEOUT = 20000;
 var common = require('../common');
 var assert = require('assert');
 var spawn = require('child_process').spawn;
@@ -29,7 +29,6 @@ var port = common.PORT + 1337;
 var child;
 var buffer = '';
 var expected = [];
-var quit;
 
 function startDebugger(scriptToDebug) {
   scriptToDebug = process.env.NODE_DEBUGGER_TEST_SCRIPT ||
@@ -71,7 +70,7 @@ function startDebugger(scriptToDebug) {
   });
 
   var quitCalled = false;
-  quit = function() {
+  function quit() {
     if (quitCalled || childClosed) return;
     quitCalled = true;
     child.stdin.write('quit');
@@ -91,7 +90,7 @@ function startDebugger(scriptToDebug) {
     });
 
     quit();
-  }, 5000).unref();
+  }, 50000).unref();
 
   process.once('uncaughtException', function(e) {
     console.error('UncaughtException', e, e.stack);

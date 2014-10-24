@@ -74,11 +74,10 @@ Handle<ScopeInfo> ScopeInfo::Create(Scope* scope, Zone* zone) {
       + parameter_count + stack_local_count + 2 * context_local_count
       + (has_function_name ? 2 : 0);
 
-  Factory* factory = zone->isolate()->factory();
-  Handle<ScopeInfo> scope_info = factory->NewScopeInfo(length);
+  Handle<ScopeInfo> scope_info = FACTORY->NewScopeInfo(length);
 
   // Encode the flags.
-  int flags = ScopeTypeField::encode(scope->scope_type()) |
+  int flags = TypeField::encode(scope->type()) |
       CallsEvalField::encode(scope->calls_eval()) |
       LanguageModeField::encode(scope->language_mode()) |
       FunctionVariableField::encode(function_name_info) |
@@ -155,9 +154,9 @@ ScopeInfo* ScopeInfo::Empty(Isolate* isolate) {
 }
 
 
-ScopeType ScopeInfo::scope_type() {
+ScopeType ScopeInfo::Type() {
   ASSERT(length() > 0);
-  return ScopeTypeField::decode(Flags());
+  return TypeField::decode(Flags());
 }
 
 
@@ -193,9 +192,9 @@ int ScopeInfo::ContextLength() {
         FunctionVariableField::decode(Flags()) == CONTEXT;
     bool has_context = context_locals > 0 ||
         function_name_context_slot ||
-        scope_type() == WITH_SCOPE ||
-        (scope_type() == FUNCTION_SCOPE && CallsEval()) ||
-        scope_type() == MODULE_SCOPE;
+        Type() == WITH_SCOPE ||
+        (Type() == FUNCTION_SCOPE && CallsEval()) ||
+        Type() == MODULE_SCOPE;
     if (has_context) {
       return Context::MIN_CONTEXT_SLOTS + context_locals +
           (function_name_context_slot ? 1 : 0);
@@ -363,14 +362,14 @@ int ScopeInfo::FunctionContextSlotIndex(String* name, VariableMode* mode) {
 }
 
 
-bool ScopeInfo::CopyContextLocalsToScopeObject(Handle<ScopeInfo> scope_info,
-                                               Handle<Context> context,
-                                               Handle<JSObject> scope_object) {
-  Isolate* isolate = scope_info->GetIsolate();
-  int local_count = scope_info->ContextLocalCount();
+bool ScopeInfo::CopyContextLocalsToScopeObject(
+    Isolate* isolate,
+    Handle<Context> context,
+    Handle<JSObject> scope_object) {
+  int local_count = ContextLocalCount();
   if (local_count == 0) return true;
   // Fill all context locals to the context extension.
-  int start = scope_info->ContextLocalNameEntriesIndex();
+  int start = ContextLocalNameEntriesIndex();
   int end = start + local_count;
   for (int i = start; i < end; ++i) {
     int context_index = Context::MIN_CONTEXT_SLOTS + i - start;
@@ -378,7 +377,7 @@ bool ScopeInfo::CopyContextLocalsToScopeObject(Handle<ScopeInfo> scope_info,
         isolate,
         SetProperty(isolate,
                     scope_object,
-                    Handle<String>(String::cast(scope_info->get(i))),
+                    Handle<String>(String::cast(get(i))),
                     Handle<Object>(context->get(context_index), isolate),
                     ::NONE,
                     kNonStrictMode),
@@ -445,8 +444,7 @@ void ContextSlotCache::Update(Object* data,
                               int slot_index) {
   String* internalized_name;
   ASSERT(slot_index > kNotFound);
-  if (name->GetIsolate()->heap()->InternalizeStringIfExists(
-          name, &internalized_name)) {
+  if (HEAP->InternalizeStringIfExists(name, &internalized_name)) {
     int index = Hash(data, internalized_name);
     Key& key = keys_[index];
     key.data = data;
@@ -473,8 +471,7 @@ void ContextSlotCache::ValidateEntry(Object* data,
                                      InitializationFlag init_flag,
                                      int slot_index) {
   String* internalized_name;
-  if (name->GetIsolate()->heap()->InternalizeStringIfExists(
-          name, &internalized_name)) {
+  if (HEAP->InternalizeStringIfExists(name, &internalized_name)) {
     int index = Hash(data, name);
     Key& key = keys_[index];
     ASSERT(key.data == data);

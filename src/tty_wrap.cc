@@ -19,47 +19,45 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "tty_wrap.h"
-
-#include "env.h"
-#include "env-inl.h"
-#include "handle_wrap.h"
+#include "node.h"
 #include "node_buffer.h"
-#include "node_wrap.h"
 #include "req_wrap.h"
+#include "handle_wrap.h"
 #include "stream_wrap.h"
-#include "util.h"
-#include "util-inl.h"
+#include "tty_wrap.h"
 
 namespace node {
 
-using v8::Array;
+using v8::Arguments;
 using v8::Context;
 using v8::Function;
-using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::Handle;
 using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
 using v8::Object;
+using v8::Persistent;
 using v8::PropertyAttribute;
 using v8::String;
+using v8::TryCatch;
+using v8::Undefined;
 using v8::Value;
 
 
-void TTYWrap::Initialize(Handle<Object> target,
-                         Handle<Value> unused,
-                         Handle<Context> context) {
-  Environment* env = Environment::GetCurrent(context);
+void TTYWrap::Initialize(Handle<Object> target) {
+  StreamWrap::Initialize(target);
+
+  HandleScope scope;
 
   Local<FunctionTemplate> t = FunctionTemplate::New(New);
-  t->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "TTY"));
+  t->SetClassName(String::NewSymbol("TTY"));
+
   t->InstanceTemplate()->SetInternalFieldCount(1);
 
   enum PropertyAttribute attributes =
       static_cast<PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
-  t->InstanceTemplate()->SetAccessor(FIXED_ONE_BYTE_STRING(node_isolate, "fd"),
+  t->InstanceTemplate()->SetAccessor(String::New("fd"),
                                      StreamWrap::GetFD,
                                      NULL,
                                      Handle<Value>(),
@@ -73,9 +71,7 @@ void TTYWrap::Initialize(Handle<Object> target,
   NODE_SET_PROTOTYPE_METHOD(t, "readStop", StreamWrap::ReadStop);
 
   NODE_SET_PROTOTYPE_METHOD(t, "writeBuffer", StreamWrap::WriteBuffer);
-  NODE_SET_PROTOTYPE_METHOD(t,
-                            "writeAsciiString",
-                            StreamWrap::WriteAsciiString);
+  NODE_SET_PROTOTYPE_METHOD(t, "writeAsciiString", StreamWrap::WriteAsciiString);
   NODE_SET_PROTOTYPE_METHOD(t, "writeUtf8String", StreamWrap::WriteUtf8String);
   NODE_SET_PROTOTYPE_METHOD(t, "writeUcs2String", StreamWrap::WriteUcs2String);
 
@@ -85,8 +81,14 @@ void TTYWrap::Initialize(Handle<Object> target,
   NODE_SET_METHOD(target, "isTTY", IsTTY);
   NODE_SET_METHOD(target, "guessHandleType", GuessHandleType);
 
-  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "TTY"), t->GetFunction());
-  env->set_tty_constructor_template(t);
+  target->Set(String::NewSymbol("TTY"), t->GetFunction());
+}
+
+
+TTYWrap* TTYWrap::Unwrap(Local<Object> obj) {
+  assert(!obj.IsEmpty());
+  assert(obj->InternalFieldCount() > 0);
+  return static_cast<TTYWrap*>(obj->GetPointerFromInternalField(0));
 }
 
 
@@ -95,70 +97,90 @@ uv_tty_t* TTYWrap::UVHandle() {
 }
 
 
-void TTYWrap::GuessHandleType(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> TTYWrap::GuessHandleType(const Arguments& args) {
+  HandleScope scope;
   int fd = args[0]->Int32Value();
   assert(fd >= 0);
 
   uv_handle_type t = uv_guess_handle(fd);
-  const char* type = NULL;
 
   switch (t) {
-  case UV_TCP: type = "TCP"; break;
-  case UV_TTY: type = "TTY"; break;
-  case UV_UDP: type = "UDP"; break;
-  case UV_FILE: type = "FILE"; break;
-  case UV_NAMED_PIPE: type = "PIPE"; break;
-  case UV_UNKNOWN_HANDLE: type = "UNKNOWN"; break;
-  default:
-    abort();
-  }
+    case UV_TCP:
+      return scope.Close(String::New("TCP"));
 
-  args.GetReturnValue().Set(OneByteString(node_isolate, type));
+    case UV_TTY:
+      return scope.Close(String::New("TTY"));
+
+    case UV_UDP:
+      return scope.Close(String::New("UDP"));
+
+    case UV_NAMED_PIPE:
+      return scope.Close(String::New("PIPE"));
+
+    case UV_FILE:
+      return scope.Close(String::New("FILE"));
+
+    case UV_UNKNOWN_HANDLE:
+      return scope.Close(String::New("UNKNOWN"));
+
+    default:
+      assert(0);
+      return v8::Undefined();
+  }
 }
 
 
-void TTYWrap::IsTTY(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> TTYWrap::IsTTY(const Arguments& args) {
+  HandleScope scope;
   int fd = args[0]->Int32Value();
   assert(fd >= 0);
-  bool rc = uv_guess_handle(fd) == UV_TTY;
-  args.GetReturnValue().Set(rc);
-}
 
-
-void TTYWrap::GetWindowSize(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
-
-  TTYWrap* wrap = Unwrap<TTYWrap>(args.This());
-  assert(args[0]->IsArray());
-
-  int width, height;
-  int err = uv_tty_get_winsize(&wrap->handle_, &width, &height);
-
-  if (err == 0) {
-    Local<v8::Array> a = args[0].As<Array>();
-    a->Set(0, Integer::New(width, node_isolate));
-    a->Set(1, Integer::New(height, node_isolate));
+  if (uv_guess_handle(fd) == UV_TTY) {
+    return v8::True();
   }
 
-  args.GetReturnValue().Set(err);
+  return v8::False();
 }
 
 
-void TTYWrap::SetRawMode(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> TTYWrap::GetWindowSize(const Arguments& args) {
+  HandleScope scope;
 
-  TTYWrap* wrap = Unwrap<TTYWrap>(args.This());
+  UNWRAP(TTYWrap)
 
-  int err = uv_tty_set_mode(&wrap->handle_, args[0]->IsTrue());
-  args.GetReturnValue().Set(err);
+  int width, height;
+  int r = uv_tty_get_winsize(&wrap->handle_, &width, &height);
+
+  if (r) {
+    SetErrno(uv_last_error(uv_default_loop()));
+    return v8::Undefined();
+  }
+
+  Local<v8::Array> a = v8::Array::New(2);
+  a->Set(0, Integer::New(width));
+  a->Set(1, Integer::New(height));
+
+  return scope.Close(a);
 }
 
 
-void TTYWrap::New(const FunctionCallbackInfo<Value>& args) {
-  HandleScope handle_scope(args.GetIsolate());
-  Environment* env = Environment::GetCurrent(args.GetIsolate());
+Handle<Value> TTYWrap::SetRawMode(const Arguments& args) {
+  HandleScope scope;
+
+  UNWRAP(TTYWrap)
+
+  int r = uv_tty_set_mode(&wrap->handle_, args[0]->IsTrue());
+
+  if (r) {
+    SetErrno(uv_last_error(uv_default_loop()));
+  }
+
+  return scope.Close(Integer::New(r));
+}
+
+
+Handle<Value> TTYWrap::New(const Arguments& args) {
+  HandleScope scope;
 
   // This constructor should not be exposed to public javascript.
   // Therefore we assert that we are not trying to call this as a
@@ -168,16 +190,19 @@ void TTYWrap::New(const FunctionCallbackInfo<Value>& args) {
   int fd = args[0]->Int32Value();
   assert(fd >= 0);
 
-  TTYWrap* wrap = new TTYWrap(env, args.This(), fd, args[1]->IsTrue());
+  TTYWrap* wrap = new TTYWrap(args.This(), fd, args[1]->IsTrue());
+  assert(wrap);
   wrap->UpdateWriteQueueSize();
+
+  return scope.Close(args.This());
 }
 
 
-TTYWrap::TTYWrap(Environment* env, Handle<Object> object, int fd, bool readable)
-    : StreamWrap(env, object, reinterpret_cast<uv_stream_t*>(&handle_)) {
-  uv_tty_init(env->event_loop(), &handle_, fd, readable);
+TTYWrap::TTYWrap(Handle<Object> object, int fd, bool readable)
+    : StreamWrap(object, (uv_stream_t*)&handle_) {
+  uv_tty_init(uv_default_loop(), &handle_, fd, readable);
 }
 
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE(node_tty_wrap, node::TTYWrap::Initialize)
+NODE_MODULE(node_tty_wrap, node::TTYWrap::Initialize)

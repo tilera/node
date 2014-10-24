@@ -290,7 +290,8 @@ child, and it is no longer possible to send messages.
 The 'disconnect' event will be emitted when there are no messages in the process
 of being received, most likely immediately.
 
-Note that you can also call `process.disconnect()` in the child process.
+Note that you can also call `process.disconnect()` in the child process when the
+child process has any open IPC channels with the parent (i.e `fork()`).
 
 ## child_process.spawn(command, [args], [options])
 
@@ -411,7 +412,9 @@ index corresponds to a fd in the child.  The value is one of the following:
 4. `Stream` object - Share a readable or writable stream that refers to a tty,
    file, socket, or a pipe with the child process. The stream's underlying
    file descriptor is duplicated in the child process to the fd that 
-   corresponds to the index in the `stdio` array.
+   corresponds to the index in the `stdio` array. Note that the stream must
+   have an underlying descriptor (file streams do not until the `'open'`
+   event has occurred).
 5. Positive integer - The integer value is interpreted as a file descriptor 
    that is is currently open in the parent process. It is shared with the child
    process, similar to how `Stream` objects can be shared.
@@ -484,10 +487,6 @@ See also: `child_process.exec()` and `child_process.fork()`
   * `cwd` {String} Current working directory of the child process
   * `env` {Object} Environment key-value pairs
   * `encoding` {String} (Default: 'utf8')
-  * `shell` {String} Shell to execute the command with
-    (Default: '/bin/sh' on UNIX, 'cmd.exe' on Windows,  The shell should
-     understand the `-c` switch on UNIX or `/s /c` on Windows. On Windows,
-     command line parsing should be compatible with `cmd.exe`.)
   * `timeout` {Number} (Default: 0)
   * `maxBuffer` {Number} (Default: `200*1024`)
   * `killSignal` {String} (Default: 'SIGTERM')
@@ -512,8 +511,8 @@ Runs a command in a shell and buffers the output.
     });
 
 The callback gets the arguments `(error, stdout, stderr)`. On success, `error`
-will be `null`.  On error, `error` will be an instance of `Error` and `err.code`
-will be the exit code of the child process, and `err.signal` will be set to the
+will be `null`.  On error, `error` will be an instance of `Error` and `error.code`
+will be the exit code of the child process, and `error.signal` will be set to the
 signal that terminated the process.
 
 There is a second optional argument to specify several options. The
@@ -533,7 +532,7 @@ amount of data allowed on stdout or stderr - if this value is exceeded then
 the child process is killed.
 
 
-## child_process.execFile(file, args, options, callback)
+## child_process.execFile(file, [args], [options], [callback])
 
 * `file` {String} The filename of the program to run
 * `args` {Array} List of string arguments
@@ -566,8 +565,10 @@ leaner than `child_process.exec`. It has the same options.
   * `execPath` {String} Executable used to create the child process
   * `execArgv` {Array} List of string arguments passed to the executable
     (Default: `process.execArgv`)
-  * `silent` {Boolean} If true, prevent stdout and stderr in the spawned node
-    process from being associated with the parent's (default is false)
+  * `silent` {Boolean} If true, stdin, stdout, and stderr of the child will be
+    piped to the parent, otherwise they will be inherited from the parent, see
+    the "pipe" and "inherit" options for `spawn()`'s `stdio` for more details
+    (default is false)
 * Return: ChildProcess object
 
 This is a special case of the `spawn()` functionality for spawning Node

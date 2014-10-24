@@ -300,7 +300,7 @@ MaybeObject* BasicJsonStringifier::StringifyString(Isolate* isolate,
   if (object->IsOneByteRepresentationUnderneath()) {
     Handle<String> result =
         isolate->factory()->NewRawOneByteString(worst_case_length);
-    DisallowHeapAllocation no_gc;
+    AssertNoAllocation no_alloc;
     return StringifyString_<SeqOneByteString>(
         isolate,
         object->GetFlatContent().ToOneByteVector(),
@@ -308,7 +308,7 @@ MaybeObject* BasicJsonStringifier::StringifyString(Isolate* isolate,
   } else {
     Handle<String> result =
         isolate->factory()->NewRawTwoByteString(worst_case_length);
-    DisallowHeapAllocation no_gc;
+    AssertNoAllocation no_alloc;
     return StringifyString_<SeqTwoByteString>(
         isolate,
         object->GetFlatContent().ToUC16Vector(),
@@ -321,7 +321,7 @@ template <typename ResultType, typename Char>
 MaybeObject* BasicJsonStringifier::StringifyString_(Isolate* isolate,
                                                     Vector<Char> vector,
                                                     Handle<String> result) {
-  DisallowHeapAllocation no_gc;
+  AssertNoAllocation no_allocation;
   int final_size = 0;
   ResultType* dest = ResultType::cast(*result);
   dest->Set(final_size++, '\"');
@@ -367,7 +367,7 @@ Handle<Object> BasicJsonStringifier::ApplyToJsonFunction(
   Handle<Object> argv[] = { key };
   bool has_exception = false;
   HandleScope scope(isolate_);
-  object = Execution::Call(isolate_, fun, object, 1, argv, &has_exception);
+  object = Execution::Call(fun, object, 1, argv, &has_exception);
   // Return empty handle to signal an exception.
   if (has_exception) return Handle<Object>::null();
   return scope.CloseAndEscape(object);
@@ -470,7 +470,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeGeneric(
   Handle<Object> argv[] = { key, object };
   bool has_exception = false;
   Handle<Object> result =
-      Execution::Call(isolate_, builtin, object, 2, argv, &has_exception);
+      Execution::Call(builtin, object, 2, argv, &has_exception);
   if (has_exception) return EXCEPTION;
   if (result->IsUndefined()) return UNCHANGED;
   if (deferred_key) {
@@ -495,13 +495,11 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSValue(
   bool has_exception = false;
   String* class_name = object->class_name();
   if (class_name == isolate_->heap()->String_string()) {
-    Handle<Object> value =
-        Execution::ToString(isolate_, object, &has_exception);
+    Handle<Object> value = Execution::ToString(object, &has_exception);
     if (has_exception) return EXCEPTION;
     SerializeString(Handle<String>::cast(value));
   } else if (class_name == isolate_->heap()->Number_string()) {
-    Handle<Object> value =
-        Execution::ToNumber(isolate_, object, &has_exception);
+    Handle<Object> value = Execution::ToNumber(object, &has_exception);
     if (has_exception) return EXCEPTION;
     if (value->IsSmi()) return SerializeSmi(Smi::cast(*value));
     SerializeHeapNumber(Handle<HeapNumber>::cast(value));
@@ -602,12 +600,11 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArraySlow(
     Handle<JSArray> object, int length) {
   for (int i = 0; i < length; i++) {
     if (i > 0) Append(',');
-    Handle<Object> element = Object::GetElement(isolate_, object, i);
-    RETURN_IF_EMPTY_HANDLE_VALUE(isolate_, element, EXCEPTION);
+    Handle<Object> element = Object::GetElement(object, i);
     if (element->IsUndefined()) {
       AppendAscii("null");
     } else {
-      Result result = SerializeElement(isolate_, element, i);
+      Result result = SerializeElement(object->GetIsolate(), element, i);
       if (result == SUCCESS) continue;
       if (result == UNCHANGED) {
         AppendAscii("null");
@@ -645,11 +642,11 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
       if (!name->IsString()) continue;
       Handle<String> key = Handle<String>::cast(name);
       PropertyDetails details = map->instance_descriptors()->GetDetails(i);
-      if (details.IsDontEnum()) continue;
+      if (details.IsDontEnum() || details.IsDeleted()) continue;
       Handle<Object> property;
       if (details.type() == FIELD && *map == object->map()) {
         property = Handle<Object>(
-                       object->RawFastPropertyAt(
+                       object->FastPropertyAt(
                            map->instance_descriptors()->GetFieldIndex(i)),
                        isolate_);
       } else {
@@ -678,10 +675,9 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
         key_handle = factory_->NumberToString(Handle<Object>(key, isolate_));
         uint32_t index;
         if (key->IsSmi()) {
-          property = Object::GetElement(
-              isolate_, object, Smi::cast(key)->value());
+          property = Object::GetElement(object, Smi::cast(key)->value());
         } else if (key_handle->AsArrayIndex(&index)) {
-          property = Object::GetElement(isolate_, object, index);
+          property = Object::GetElement(object, index);
         } else {
           property = GetProperty(isolate_, object, key_handle);
         }
@@ -765,7 +761,7 @@ void BasicJsonStringifier::SerializeString_(Handle<String> string) {
   // is a more pessimistic estimate, but faster to calculate.
 
   if (((part_length_ - current_index_) >> 3) > length) {
-    DisallowHeapAllocation no_gc;
+    AssertNoAllocation no_allocation;
     Vector<const Char> vector = GetCharVector<Char>(string);
     if (is_ascii) {
       current_index_ += SerializeStringUnchecked_(
@@ -779,22 +775,20 @@ void BasicJsonStringifier::SerializeString_(Handle<String> string) {
           length);
     }
   } else {
-    String* string_location = NULL;
-    Vector<const Char> vector(NULL, 0);
+    String* string_location = *string;
+    Vector<const Char> vector = GetCharVector<Char>(string);
     for (int i = 0; i < length; i++) {
-      // If GC moved the string, we need to refresh the vector.
-      if (*string != string_location) {
-        DisallowHeapAllocation no_gc;
-        // This does not actually prevent the string from being relocated later.
-        vector = GetCharVector<Char>(string);
-        string_location = *string;
-      }
       Char c = vector[i];
       if (DoNotEscape(c)) {
         Append_<is_ascii, Char>(c);
       } else {
         Append_<is_ascii, uint8_t>(reinterpret_cast<const uint8_t*>(
             &JsonEscapeTable[c * kJsonEscapeTableEntrySize]));
+      }
+      // If GC moved the string, we need to refresh the vector.
+      if (*string != string_location) {
+        vector = GetCharVector<Char>(string);
+        string_location = *string;
       }
     }
   }
@@ -833,16 +827,17 @@ Vector<const uc16> BasicJsonStringifier::GetCharVector(Handle<String> string) {
 
 
 void BasicJsonStringifier::SerializeString(Handle<String> object) {
-  object = FlattenGetString(object);
+  FlattenString(object);
+  String::FlatContent flat = object->GetFlatContent();
   if (is_ascii_) {
-    if (object->IsOneByteRepresentationUnderneath()) {
+    if (flat.IsAscii()) {
       SerializeString_<true, uint8_t>(object);
     } else {
       ChangeEncoding();
       SerializeString(object);
     }
   } else {
-    if (object->IsOneByteRepresentationUnderneath()) {
+    if (flat.IsAscii()) {
       SerializeString_<false, uint8_t>(object);
     } else {
       SerializeString_<false, uc16>(object);

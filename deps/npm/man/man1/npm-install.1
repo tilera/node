@@ -1,7 +1,7 @@
-.\" Generated with Ronnjs 0.3.8
-.\" http://github.com/kapouer/ronnjs/
+.\" Generated with Ronnjs 0.4.0
+.\" http://github.com/kapouer/ronnjs
 .
-.TH "NPM\-INSTALL" "1" "December 2013" "" ""
+.TH "NPM\-INSTALL" "1" "August 2014" "" ""
 .
 .SH "NAME"
 \fBnpm-install\fR \-\- Install a package
@@ -13,7 +13,7 @@ npm install (with no args in a package dir)
 npm install <tarball file>
 npm install <tarball url>
 npm install <folder>
-npm install <name> [\-\-save|\-\-save\-dev|\-\-save\-optional]
+npm install <name> [\-\-save|\-\-save\-dev|\-\-save\-optional] [\-\-save\-exact]
 npm install <name>@<tag>
 npm install <name>@<version>
 npm install <name>@<version range>
@@ -39,7 +39,7 @@ b) a gzipped tarball containing (a)
 c) a url that resolves to (b)
 .
 .IP "\(bu" 4
-d) a \fB<name>@<version>\fR that is published on the registry with (c)
+d) a \fB<name>@<version>\fR that is published on the registry (npm help  see \fBnpm\-registry\fR) with (c)
 .
 .IP "\(bu" 4
 e) a \fB<name>@<tag>\fR that points to (d)
@@ -134,8 +134,14 @@ of the module published on npm\.
 .IP
 Example:
 .
-.IP
-      npm install sax
+.IP "" 4
+.
+.nf
+  npm install sax
+.
+.fi
+.
+.IP "" 0
 .
 .IP
 \fBnpm install\fR takes 3 exclusive, optional flags which save or update
@@ -150,21 +156,38 @@ the package version in your main package\.json:
 .IP "\(bu" 4
 \fB\-\-save\-optional\fR: Package will appear in your \fBoptionalDependencies\fR\|\.
 .
+.IP "" 0
+.
+.IP
+When using any of the above options to save dependencies to your
+package\.json, there is an additional, optional flag:
+.
+.IP "\(bu" 4
+\fB\-\-save\-exact\fR: Saved dependencies will be configured with an
+exact version rather than using npm\'s default semver range
+operator\.
+.
+.IP "" 0
+.
 .IP
 Examples:
 .
-.IP
+.IP "" 4
+.
+.nf
   npm install sax \-\-save
   npm install node\-tap \-\-save\-dev
   npm install dtrace\-provider \-\-save\-optional
+  npm install readable\-stream \-\-save \-\-save\-exact
+.
+.fi
+.
+.IP "" 0
 .
 .IP
 \fBNote\fR: If there is a file or folder named \fB<name>\fR in the current
 working directory, then it will try to install that, and only try to
 fetch the package by name if it is not valid\.
-.
-.IP "" 0
-
 .
 .IP "\(bu" 4
 \fBnpm install <name>@<tag>\fR:
@@ -221,8 +244,15 @@ treat it as a single argument\.
 .IP
 Example:
 .
-.IP
-      npm install sax@">=0\.1\.0 <0\.2\.0"
+.IP "" 4
+.
+.nf
+  npm install sax@">=0\.1\.0 <0\.2\.0"
+.
+.fi
+.
+.IP "" 0
+
 .
 .IP "\(bu" 4
 \fBnpm install <git remote url>\fR:
@@ -231,8 +261,14 @@ Example:
 Install a package by cloning a git remote url\.  The format of the git
 url is:
 .
-.IP
-      <protocol>://[<user>@]<hostname><separator><path>[#<commit\-ish>]
+.IP "" 4
+.
+.nf
+  <protocol>://[<user>@]<hostname><separator><path>[#<commit\-ish>]
+.
+.fi
+.
+.IP "" 0
 .
 .IP
 \fB<protocol>\fR is one of \fBgit\fR, \fBgit+ssh\fR, \fBgit+http\fR, or \fBgit+https\fR\|\.  If no \fB<commit\-ish>\fR is specified, then \fBmaster\fR is
@@ -244,9 +280,9 @@ Examples:
 .IP "" 4
 .
 .nf
-  git+ssh://git@github\.com:isaacs/npm\.git#v1\.0\.27
-  git+https://isaacs@github\.com/isaacs/npm\.git
-  git://github\.com/isaacs/npm\.git#v1\.0\.27
+  git+ssh://git@github\.com:npm/npm\.git#v1\.0\.27
+  git+https://isaacs@github\.com/npm/npm\.git
+  git://github\.com/npm/npm\.git#v1\.0\.27
 .
 .fi
 .
@@ -417,9 +453,6 @@ npm help  npmrc
 .
 .IP "\(bu" 4
 npm help  registry
-.
-.IP "\(bu" 4
-npm help  folders
 .
 .IP "\(bu" 4
 npm help tag

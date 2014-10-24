@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
 #include "assembler-arm.h"
 #include "code-stubs.h"
@@ -321,13 +321,12 @@ static void GenerateKeyNameCheck(MacroAssembler* masm,
   __ tst(hash, Operand(Name::kContainsCachedArrayIndexMask));
   __ b(eq, index_string);
 
-  // Is the string internalized? We know it's a string, so a single
-  // bit test is enough.
+  // Is the string internalized?
   // map: key map
   __ ldrb(hash, FieldMemOperand(map, Map::kInstanceTypeOffset));
-  STATIC_ASSERT(kInternalizedTag == 0);
-  __ tst(hash, Operand(kIsNotInternalizedMask));
-  __ b(ne, not_unique);
+  STATIC_ASSERT(kInternalizedTag != 0);
+  __ tst(hash, Operand(kIsInternalizedMask));
+  __ b(eq, not_unique);
 
   __ bind(&unique);
 }
@@ -354,7 +353,7 @@ void CallICBase::GenerateMonomorphicCacheProbe(MacroAssembler* masm,
                                          extra_state,
                                          Code::NORMAL,
                                          argc);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, r1, r2, r3, r4, r5, r6);
 
   // If the stub cache probing failed, the receiver might be a value.
@@ -393,7 +392,7 @@ void CallICBase::GenerateMonomorphicCacheProbe(MacroAssembler* masm,
 
   // Probe the stub cache for the value object.
   __ bind(&probe);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, r1, r2, r3, r4, r5, r6);
 
   __ bind(&miss);
@@ -647,18 +646,22 @@ void KeyedCallIC::GenerateNormal(MacroAssembler* masm, int argc) {
 }
 
 
+// Defined in ic.cc.
+Object* LoadIC_Miss(Arguments args);
+
 void LoadIC::GenerateMegamorphic(MacroAssembler* masm) {
   // ----------- S t a t e -------------
   //  -- r2    : name
   //  -- lr    : return address
   //  -- r0    : receiver
+  //  -- sp[0] : receiver
   // -----------------------------------
 
   // Probe the stub cache.
   Code::Flags flags = Code::ComputeFlags(
-      Code::HANDLER, MONOMORPHIC, Code::kNoExtraICState,
+      Code::STUB, MONOMORPHIC, Code::kNoExtraICState,
       Code::NORMAL, Code::LOAD_IC);
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, r0, r2, r3, r4, r5, r6);
 
   // Cache miss: Jump to runtime.
@@ -671,6 +674,7 @@ void LoadIC::GenerateNormal(MacroAssembler* masm) {
   //  -- r2    : name
   //  -- lr    : return address
   //  -- r0    : receiver
+  //  -- sp[0] : receiver
   // -----------------------------------
   Label miss;
 
@@ -691,6 +695,7 @@ void LoadIC::GenerateMiss(MacroAssembler* masm) {
   //  -- r2    : name
   //  -- lr    : return address
   //  -- r0    : receiver
+  //  -- sp[0] : receiver
   // -----------------------------------
   Isolate* isolate = masm->isolate();
 
@@ -703,20 +708,6 @@ void LoadIC::GenerateMiss(MacroAssembler* masm) {
   ExternalReference ref =
       ExternalReference(IC_Utility(kLoadIC_Miss), isolate);
   __ TailCallExternalReference(ref, 2, 1);
-}
-
-
-void LoadIC::GenerateRuntimeGetProperty(MacroAssembler* masm) {
-  // ---------- S t a t e --------------
-  //  -- r2    : name
-  //  -- lr    : return address
-  //  -- r0    : receiver
-  // -----------------------------------
-
-  __ mov(r3, r0);
-  __ Push(r3, r2);
-
-  __ TailCallRuntime(Runtime::kGetProperty, 2, 1);
 }
 
 
@@ -885,6 +876,9 @@ void KeyedCallIC::GenerateNonStrictArguments(MacroAssembler* masm,
   __ bind(&slow);
   GenerateMiss(masm, argc);
 }
+
+
+Object* KeyedLoadIC_Miss(Arguments args);
 
 
 void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
@@ -1221,6 +1215,51 @@ void KeyedStoreIC::GenerateSlow(MacroAssembler* masm) {
 }
 
 
+void KeyedStoreIC::GenerateTransitionElementsSmiToDouble(MacroAssembler* masm) {
+  // ---------- S t a t e --------------
+  //  -- r2     : receiver
+  //  -- r3     : target map
+  //  -- lr     : return address
+  // -----------------------------------
+  // Must return the modified receiver in r0.
+  if (!FLAG_trace_elements_transitions) {
+    Label fail;
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                          FAST_DOUBLE_ELEMENTS);
+    ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, &fail);
+    __ mov(r0, r2);
+    __ Ret();
+    __ bind(&fail);
+  }
+
+  __ push(r2);
+  __ TailCallRuntime(Runtime::kTransitionElementsSmiToDouble, 1, 1);
+}
+
+
+void KeyedStoreIC::GenerateTransitionElementsDoubleToObject(
+    MacroAssembler* masm) {
+  // ---------- S t a t e --------------
+  //  -- r2     : receiver
+  //  -- r3     : target map
+  //  -- lr     : return address
+  // -----------------------------------
+  // Must return the modified receiver in r0.
+  if (!FLAG_trace_elements_transitions) {
+    Label fail;
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS,
+                                                          FAST_ELEMENTS);
+    ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, &fail);
+    __ mov(r0, r2);
+    __ Ret();
+    __ bind(&fail);
+  }
+
+  __ push(r2);
+  __ TailCallRuntime(Runtime::kTransitionElementsDoubleToObject, 1, 1);
+}
+
+
 void KeyedStoreIC::GenerateRuntimeSetProperty(MacroAssembler* masm,
                                               StrictModeFlag strict_mode) {
   // ---------- S t a t e --------------
@@ -1316,7 +1355,7 @@ static void KeyedStoreGenerateGenericHelper(
     __ b(ne, slow);
   }
   __ bind(&fast_double_without_map_check);
-  __ StoreNumberToDoubleElements(value, key, elements, r3, d0,
+  __ StoreNumberToDoubleElements(value, key, elements, r3,
                                  &transition_double_elements);
   if (increment_length == kIncrementLength) {
     // Add 1 to receiver->length.
@@ -1339,8 +1378,8 @@ static void KeyedStoreGenerateGenericHelper(
                                          r4,
                                          slow);
   ASSERT(receiver_map.is(r3));  // Transition code expects map in r3
-  AllocationSiteMode mode = AllocationSite::GetMode(FAST_SMI_ELEMENTS,
-                                                    FAST_DOUBLE_ELEMENTS);
+  AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                        FAST_DOUBLE_ELEMENTS);
   ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, slow);
   __ ldr(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
   __ jmp(&fast_double_without_map_check);
@@ -1353,7 +1392,7 @@ static void KeyedStoreGenerateGenericHelper(
                                          r4,
                                          slow);
   ASSERT(receiver_map.is(r3));  // Transition code expects map in r3
-  mode = AllocationSite::GetMode(FAST_SMI_ELEMENTS, FAST_ELEMENTS);
+  mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS, FAST_ELEMENTS);
   ElementsTransitionGenerator::GenerateMapChangeElementsTransition(masm, mode,
                                                                    slow);
   __ ldr(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
@@ -1369,7 +1408,7 @@ static void KeyedStoreGenerateGenericHelper(
                                          r4,
                                          slow);
   ASSERT(receiver_map.is(r3));  // Transition code expects map in r3
-  mode = AllocationSite::GetMode(FAST_DOUBLE_ELEMENTS, FAST_ELEMENTS);
+  mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS, FAST_ELEMENTS);
   ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, slow);
   __ ldr(elements, FieldMemOperand(receiver, JSObject::kElementsOffset));
   __ jmp(&finish_object_store);
@@ -1394,7 +1433,7 @@ void KeyedStoreIC::GenerateGeneric(MacroAssembler* masm,
   Register receiver = r2;
   Register receiver_map = r3;
   Register elements_map = r6;
-  Register elements = r9;  // Elements array of the receiver.
+  Register elements = r7;  // Elements array of the receiver.
   // r4 and r5 are used as general scratch registers.
 
   // Check that the key is a smi.
@@ -1486,11 +1525,10 @@ void StoreIC::GenerateMegamorphic(MacroAssembler* masm,
   // -----------------------------------
 
   // Get the receiver from the stack and probe the stub cache.
-  Code::Flags flags = Code::ComputeFlags(
-      Code::HANDLER, MONOMORPHIC, strict_mode,
-      Code::NORMAL, Code::STORE_IC);
+  Code::Flags flags =
+      Code::ComputeFlags(Code::STORE_IC, MONOMORPHIC, strict_mode);
 
-  masm->isolate()->stub_cache()->GenerateProbe(
+  Isolate::Current()->stub_cache()->GenerateProbe(
       masm, flags, r1, r2, r3, r4, r5, r6);
 
   // Cache miss: Jump to runtime.
@@ -1538,8 +1576,8 @@ void StoreIC::GenerateNormal(MacroAssembler* masm) {
 }
 
 
-void StoreIC::GenerateRuntimeSetProperty(MacroAssembler* masm,
-                                         StrictModeFlag strict_mode) {
+void StoreIC::GenerateGlobalProxy(MacroAssembler* masm,
+                                  StrictModeFlag strict_mode) {
   // ----------- S t a t e -------------
   //  -- r0    : value
   //  -- r1    : receiver

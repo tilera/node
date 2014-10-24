@@ -38,13 +38,13 @@ v8::Handle<v8::FunctionTemplate> GCExtension::GetNativeFunction(
 }
 
 
-void GCExtension::GC(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(args.GetIsolate());
+v8::Handle<v8::Value> GCExtension::GC(const v8::Arguments& args) {
   if (args[0]->BooleanValue()) {
-    isolate->heap()->CollectGarbage(NEW_SPACE, "gc extension");
+    HEAP->CollectGarbage(NEW_SPACE, "gc extension");
   } else {
-    isolate->heap()->CollectAllGarbage(Heap::kNoGCFlags, "gc extension");
+    HEAP->CollectAllGarbage(Heap::kNoGCFlags, "gc extension");
   }
+  return v8::Undefined();
 }
 
 

@@ -96,7 +96,7 @@ void StubRuntimeCallHelper::AfterCall(MacroAssembler* masm) const {
 
 void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
     MacroAssembler* masm, AllocationSiteMode mode,
-    Label* allocation_memento_found) {
+    Label* allocation_site_info_found) {
   // ----------- S t a t e -------------
   //  -- a0    : value
   //  -- a1    : key
@@ -107,7 +107,8 @@ void ElementsTransitionGenerator::GenerateMapChangeElementsTransition(
   // -----------------------------------
   if (mode == TRACK_ALLOCATION_SITE) {
     ASSERT(allocation_site_info_found != NULL);
-    __ JumpIfJSArrayHasAllocationMemento(a2, t0, allocation_memento_found);
+    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq,
+                                           allocation_site_info_found);
   }
 
   // Set transitioned map.
@@ -138,7 +139,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   Register scratch = t6;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    __ JumpIfJSArrayHasAllocationMemento(a2, t0, fail);
+    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -156,7 +157,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
   __ sra(scratch, t1, 32);
   __ sll(scratch, scratch, 3);
   __ Addu(scratch, scratch, FixedDoubleArray::kHeaderSize);
-  __ Allocate(scratch, t2, t3, t5, &gc_required, DOUBLE_ALIGNMENT);
+  __ Allocate(scratch, t2, t3, t5, &gc_required, NO_ALLOCATION_FLAGS);
   // t2: destination FixedDoubleArray, not tagged as heap object
 
   // Set destination FixedDoubleArray's length and map.
@@ -240,7 +241,7 @@ void ElementsTransitionGenerator::GenerateSmiToDouble(
     __ SmiTag(t5);
     __ Or(t5, t5, Operand(1));
     __ LoadRoot(at, Heap::kTheHoleValueRootIndex);
-    __ Assert(eq, kObjectFoundInSmiOnlyArray, at, Operand(t5));
+    __ Assert(eq, "object found in smi-only array", at, Operand(t5));
   }
   __ st(t0, MemOperand(t3));
   //__ st(t1, MemOperand(t3, kIntSize));  // exponent
@@ -267,7 +268,7 @@ void ElementsTransitionGenerator::GenerateDoubleToObject(
   Label entry, loop, convert_hole, gc_required, only_change_map;
 
   if (mode == TRACK_ALLOCATION_SITE) {
-    __ JumpIfJSArrayHasAllocationMemento(a2, t0, fail);
+    masm->TestJSArrayForAllocationSiteInfo(a2, t0, eq, fail);
   }
 
   // Check for empty arrays, which only require a map transition and no changes
@@ -440,7 +441,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
     // Assert that we do not have a cons or slice (indirect strings) here.
     // Sequential strings have already been ruled out.
     __ And(at, result, Operand(kIsIndirectStringMask));
-    __ Assert(eq, kExternalStringExpectedButNotFound,
+    __ Assert(eq, "external string expected, but not found",
         at, Operand(zero));
   }
   // Rule out short external strings.
@@ -466,6 +467,50 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
   __ bind(&done);
 }
 
+void SeqStringSetCharGenerator::Generate(MacroAssembler* masm,
+					 String::Encoding encoding,
+					 Register string,
+					 Register index,
+					 Register value) {
+
+  if (FLAG_debug_code) {
+    STATIC_ASSERT(kSmiTagMask < 128);
+    __ andi(t0, index, kSmiTagMask);
+    __ Check(eq, "Non-smi index", t0, Operand(zero));
+    __ andi(t0, value, kSmiTagMask);
+    __ Check(eq, "Non-smi value", t0, Operand(zero));
+
+    __ ld(t0, FieldMemOperand(string, String::kLengthOffset));
+    __ Check(lt, "Index is too large", index, Operand(t0));
+
+    __ Check(ge, "Index is negative", index, Operand(zero));
+
+    __ ld(t0, FieldMemOperand(string, HeapObject::kMapOffset));
+    __ ld1u(t0, FieldMemOperand(t0, Map::kInstanceTypeOffset));
+
+    __ And(t0, t0, Operand(kStringRepresentationMask | kStringEncodingMask));
+    static const uint32_t one_byte_seq_type = kSeqStringTag | kOneByteStringTag;
+    static const uint32_t two_byte_seq_type = kSeqStringTag | kTwoByteStringTag;
+    __ Subu(t0, t0, Operand(encoding == String::ONE_BYTE_ENCODING
+			    ? one_byte_seq_type : two_byte_seq_type));
+    __ Check(eq, "Unexpected string type", t0, Operand(zero));
+  }
+
+  __ Addu(t0,
+	  string,
+	  Operand(SeqString::kHeaderSize - kHeapObjectTag));
+  __ SmiUntag(value);
+  STATIC_ASSERT(kSmiTagSize == 1 && kSmiTag == 0);
+
+  __ SmiUntag(index);
+  if (encoding == String::ONE_BYTE_ENCODING) {
+    __ Addu(t0, t0, index);
+    __ st1(value, MemOperand(t0));
+  } else { // must be 2-byte encoding
+    __ shl1add(t0, index, t0);
+    __ st2(value, MemOperand(t0));
+  }
+}
 
 #if 0
 static MemOperand ExpConstant(int index, Register base) {
@@ -519,7 +564,7 @@ bool Code::IsYoungSequence(byte* sequence) {
 void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
                                MarkingParity* parity) {
   if (IsYoungSequence(sequence)) {
-    *age = kNoAgeCodeAge;
+    *age = kNoAge;
     *parity = NO_MARKING_PARITY;
   } else {
     Address target_address = Memory::Address_at(
@@ -530,21 +575,25 @@ void Code::GetCodeAgeAndParity(byte* sequence, Age* age,
 }
 
 
-void Code::PatchPlatformCodeAge(Isolate* isolate,
-                                byte* sequence,
+void Code::PatchPlatformCodeAge(byte* sequence,
                                 Code::Age age,
                                 MarkingParity parity) {
-
   uint32_t young_length;
   byte* young_sequence = GetNoCodeAgeSequence(&young_length);
-  if (age == kNoAgeCodeAge) {
+  if (age == kNoAge) {
     CopyBytes(sequence, young_sequence, young_length);
     CPU::FlushICache(sequence, young_length);
   } else {
-    Code* stub = GetCodeAgeStub(isolate, age, parity);
+    Code* stub = GetCodeAgeStub(age, parity);
     CodePatcher patcher(sequence, young_length / Assembler::kInstrSize);
     // Mark this code sequence for FindPlatformCodeAgeSequence()
     patcher.masm()->nop(Assembler::CODE_AGE_MARKER_NOP);
+
+    patcher.masm()->nop();
+    patcher.masm()->nop();
+    patcher.masm()->nop();
+    patcher.masm()->nop();
+
     // Save the function's original return address
     // (it will be clobbered by Call(t9))
     patcher.masm()->move(at, ra);

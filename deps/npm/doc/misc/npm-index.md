@@ -115,6 +115,10 @@ Publish a package
 
 Rebuild a package
 
+## npm-repo(1)
+
+Open package repository page in the browser
+
 ## npm-restart(1)
 
 Start a package
@@ -191,10 +195,6 @@ View registry info
 
 Display npm username
 
-## repo(1)
-
-Open package repository page in the browser
-
 # API Documentation
 
 ## npm(3)
@@ -208,6 +208,10 @@ Display npm bin folder
 ## npm-bugs(3)
 
 Bugs for a package in a web browser maybe
+
+## npm-cache(3)
+
+manage the npm cache programmatically
 
 ## npm-commands(3)
 
@@ -285,6 +289,10 @@ Publish a package
 
 Rebuild a package
 
+## npm-repo(3)
+
+Open package repository page in the browser
+
 ## npm-restart(3)
 
 Start a package
@@ -348,10 +356,6 @@ View registry info
 ## npm-whoami(3)
 
 Display npm username
-
-## repo(3)
-
-Open package repository page in the browser
 
 # Files
 

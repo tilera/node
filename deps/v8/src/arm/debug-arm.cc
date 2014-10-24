@@ -27,7 +27,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
 #include "codegen.h"
 #include "debug.h"
@@ -55,8 +55,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
   CodePatcher patcher(rinfo()->pc(), Assembler::kJSReturnSequenceInstructions);
   patcher.masm()->ldr(v8::internal::ip, MemOperand(v8::internal::pc, 0));
   patcher.masm()->blx(v8::internal::ip);
-  patcher.Emit(
-      debug_info_->GetIsolate()->debug()->debug_break_return()->entry());
+  patcher.Emit(Isolate::Current()->debug()->debug_break_return()->entry());
   patcher.masm()->bkpt(0);
 }
 
@@ -96,8 +95,7 @@ void BreakLocationIterator::SetDebugBreakAtSlot() {
   CodePatcher patcher(rinfo()->pc(), Assembler::kDebugBreakSlotInstructions);
   patcher.masm()->ldr(v8::internal::ip, MemOperand(v8::internal::pc, 0));
   patcher.masm()->blx(v8::internal::ip);
-  patcher.Emit(
-      debug_info_->GetIsolate()->debug()->debug_break_slot()->entry());
+  patcher.Emit(Isolate::Current()->debug()->debug_break_slot()->entry());
 }
 
 
@@ -132,7 +130,7 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
         if ((non_object_regs & (1 << r)) != 0) {
           if (FLAG_debug_code) {
             __ tst(reg, Operand(0xc0000000));
-            __ Assert(eq, kUnableToEncodeValueAsSmi);
+            __ Assert(eq, "Unable to encode value as smi");
           }
           __ SmiTag(reg);
         }
@@ -315,12 +313,12 @@ void Debug::GenerateSlotDebugBreak(MacroAssembler* masm) {
 
 
 void Debug::GeneratePlainReturnLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnArm);
+  masm->Abort("LiveEdit frame dropping is not supported on arm");
 }
 
 
 void Debug::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnArm);
+  masm->Abort("LiveEdit frame dropping is not supported on arm");
 }
 
 const bool Debug::kFrameDropperSupported = false;

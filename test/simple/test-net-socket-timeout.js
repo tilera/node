@@ -28,7 +28,7 @@ var timedout = false;
 var server = net.Server();
 server.listen(common.PORT, function() {
   var socket = net.createConnection(common.PORT);
-  socket.setTimeout(100, function() {
+  socket.setTimeout(10000, function() {
     timedout = true;
     socket.destroy();
     server.close();
@@ -36,7 +36,7 @@ server.listen(common.PORT, function() {
   });
   var timer = setTimeout(function() {
     process.exit(1);
-  }, 200);
+  }, 20000);
 });
 
 process.on('exit', function() {

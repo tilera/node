@@ -39,12 +39,12 @@ the following JavaScript code:
 First we create a file `hello.cc`:
 
     #include <node.h>
+    #include <v8.h>
 
     using namespace v8;
 
     Handle<Value> Method(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
       return scope.Close(String::New("world"));
     }
 
@@ -60,8 +60,7 @@ Note that all Node addons must export an initialization function:
     void Initialize (Handle<Object> exports);
     NODE_MODULE(module_name, Initialize)
 
-There is no semi-colon after `NODE_MODULE` as it's not a function (see
-`node.h`).
+There is no semi-colon after `NODE_MODULE` as it's not a function (see `node.h`).
 
 The `module_name` needs to match the filename of the final binary (minus the
 .node suffix).
@@ -90,8 +89,8 @@ command.
 Now you have your compiled `.node` bindings file! The compiled bindings end up
 in `build/Release/`.
 
-You can now use the binary addon in a Node project `hello.js` by pointing
-`require` to the recently built `hello.node` module:
+You can now use the binary addon in a Node project `hello.js` by pointing `require` to
+the recently built `hello.node` module:
 
     var addon = require('./build/Release/hello');
 
@@ -121,8 +120,8 @@ Create the following `binding.gyp` file:
       ]
     }
 
-In cases where there is more than one `.cc` file, simply add the file name to
-the `sources` array, e.g.:
+In cases where there is more than one `.cc` file, simply add the file name to the
+`sources` array, e.g.:
 
     "sources": ["addon.cc", "myexample.cc"]
 
@@ -138,23 +137,22 @@ The following pattern illustrates how to read arguments from JavaScript
 function calls and return a result. This is the main and only needed source
 `addon.cc`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
 
     using namespace v8;
 
     Handle<Value> Add(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       if (args.Length() < 2) {
-        ThrowException(Exception::TypeError(
-            String::New("Wrong number of arguments")));
-        return scope.Close(Undefined(isolate));
+        ThrowException(Exception::TypeError(String::New("Wrong number of arguments")));
+        return scope.Close(Undefined());
       }
 
       if (!args[0]->IsNumber() || !args[1]->IsNumber()) {
         ThrowException(Exception::TypeError(String::New("Wrong arguments")));
-        return scope.Close(Undefined(isolate));
+        return scope.Close(Undefined());
       }
 
       Local<Number> num = Number::New(args[0]->NumberValue() +
@@ -181,20 +179,20 @@ You can test it with the following JavaScript snippet:
 You can pass JavaScript functions to a C++ function and execute them from
 there. Here's `addon.cc`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
 
     using namespace v8;
 
     Handle<Value> RunCallback(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       Local<Function> cb = Local<Function>::Cast(args[0]);
       const unsigned argc = 1;
-      Local<Value> argv[argc] = { String::New("hello world") };
+      Local<Value> argv[argc] = { Local<Value>::New(String::New("hello world")) };
       cb->Call(Context::GetCurrent()->Global(), argc, argv);
 
-      return scope.Close(Undefined(isolate));
+      return scope.Close(Undefined());
     }
 
     void Init(Handle<Object> exports, Handle<Object> module) {
@@ -224,13 +222,13 @@ You can create and return new objects from within a C++ function with this
 `addon.cc` pattern, which returns an object with property `msg` that echoes
 the string passed to `createObject()`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
 
     using namespace v8;
 
     Handle<Value> CreateObject(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       Local<Object> obj = Object::New();
       obj->Set(String::NewSymbol("msg"), args[0]->ToString());
@@ -259,25 +257,22 @@ To test it in JavaScript:
 This pattern illustrates how to create and return a JavaScript function that
 wraps a C++ function:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
 
     using namespace v8;
 
     Handle<Value> MyFunction(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
       return scope.Close(String::New("hello world"));
     }
 
     Handle<Value> CreateFunction(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       Local<FunctionTemplate> tpl = FunctionTemplate::New(MyFunction);
       Local<Function> fn = tpl->GetFunction();
-
-      // omit this to make it anonymous
-      fn->SetName(String::NewSymbol("theFunction"));
+      fn->SetName(String::NewSymbol("theFunction")); // omit this to make it anonymous
 
       return scope.Close(fn);
     }
@@ -288,6 +283,7 @@ wraps a C++ function:
     }
 
     NODE_MODULE(addon, Init)
+
 
 To test:
 
@@ -303,6 +299,7 @@ Here we will create a wrapper for a C++ object/class `MyObject` that can be
 instantiated in JavaScript through the `new` operator. First prepare the main
 module `addon.cc`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
     #include "myobject.h"
 
@@ -341,8 +338,8 @@ And in `myobject.cc` implement the various methods that you want to expose.
 Here we expose the method `plusOne` by adding it to the constructor's
 prototype:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
-    #include <node_object_wrap.h>
     #include "myobject.h"
 
     using namespace v8;
@@ -356,26 +353,19 @@ prototype:
     }
 
     void MyObject::Init(Handle<Object> exports) {
-      Isolate* isolate = Isolate::GetCurrent();
-
       // Prepare constructor template
       Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
       tpl->SetClassName(String::NewSymbol("MyObject"));
       tpl->InstanceTemplate()->SetInternalFieldCount(1);
-
       // Prototype
       tpl->PrototypeTemplate()->Set(String::NewSymbol("plusOne"),
           FunctionTemplate::New(PlusOne)->GetFunction());
-
-      Persistent<Function> constructor
-          = Persistent<Function>::New(isolate, tpl->GetFunction());
-
+      constructor = Persistent<Function>::New(tpl->GetFunction());
       exports->Set(String::NewSymbol("MyObject"), constructor);
     }
 
     Handle<Value> MyObject::New(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       if (args.IsConstructCall()) {
         // Invoked as constructor: `new MyObject(...)`
@@ -392,8 +382,7 @@ prototype:
     }
 
     Handle<Value> MyObject::PlusOne(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       MyObject* obj = ObjectWrap::Unwrap<MyObject>(args.This());
       obj->value_ += 1;
@@ -410,6 +399,7 @@ Test it with:
     console.log( obj.plusOne() ); // 12
     console.log( obj.plusOne() ); // 13
 
+
 ### Factory of wrapped objects
 
 This is useful when you want to be able to create native objects without
@@ -421,14 +411,14 @@ explicitly instantiating them with the `new` operator in JavaScript, e.g.
 
 Let's register our `createObject` method in `addon.cc`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
     #include "myobject.h"
 
     using namespace v8;
 
     Handle<Value> CreateObject(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
       return scope.Close(MyObject::NewInstance(args));
     }
 
@@ -444,6 +434,7 @@ Let's register our `createObject` method in `addon.cc`:
 In `myobject.h` we now introduce the static method `NewInstance` that takes
 care of instantiating the object (i.e. it does the job of `new` in JavaScript):
 
+    #define BUILDING_NODE_EXTENSION
     #ifndef MYOBJECT_H
     #define MYOBJECT_H
 
@@ -468,6 +459,7 @@ care of instantiating the object (i.e. it does the job of `new` in JavaScript):
 
 The implementation is similar to the above in `myobject.cc`:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
     #include "myobject.h"
 
@@ -482,22 +474,18 @@ The implementation is similar to the above in `myobject.cc`:
     }
 
     void MyObject::Init() {
-      Isolate* isolate = Isolate::GetCurrent();
       // Prepare constructor template
       Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
       tpl->SetClassName(String::NewSymbol("MyObject"));
       tpl->InstanceTemplate()->SetInternalFieldCount(1);
-
       // Prototype
       tpl->PrototypeTemplate()->Set(String::NewSymbol("plusOne"),
           FunctionTemplate::New(PlusOne)->GetFunction());
-
-      constructor = Persistent<Function>::New(isolate, tpl->GetFunction());
+      constructor = Persistent<Function>::New(tpl->GetFunction());
     }
 
     Handle<Value> MyObject::New(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       if (args.IsConstructCall()) {
         // Invoked as constructor: `new MyObject(...)`
@@ -514,8 +502,7 @@ The implementation is similar to the above in `myobject.cc`:
     }
 
     Handle<Value> MyObject::NewInstance(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       const unsigned argc = 1;
       Handle<Value> argv[argc] = { args[0] };
@@ -525,8 +512,7 @@ The implementation is similar to the above in `myobject.cc`:
     }
 
     Handle<Value> MyObject::PlusOne(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       MyObject* obj = ObjectWrap::Unwrap<MyObject>(args.This());
       obj->value_ += 1;
@@ -556,21 +542,19 @@ by unwrapping them with Node's `node::ObjectWrap::Unwrap` helper function.
 In the following `addon.cc` we introduce a function `add()` that can take on two
 `MyObject` objects:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
-    #include <node_object_wrap.h>
     #include "myobject.h"
 
     using namespace v8;
 
     Handle<Value> CreateObject(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
       return scope.Close(MyObject::NewInstance(args));
     }
 
     Handle<Value> Add(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       MyObject* obj1 = node::ObjectWrap::Unwrap<MyObject>(
           args[0]->ToObject());
@@ -596,11 +580,11 @@ In the following `addon.cc` we introduce a function `add()` that can take on two
 To make things interesting we introduce a public method in `myobject.h` so we
 can probe private values after unwrapping the object:
 
+    #define BUILDING_NODE_EXTENSION
     #ifndef MYOBJECT_H
     #define MYOBJECT_H
 
     #include <node.h>
-    #include <node_object_wrap.h>
 
     class MyObject : public node::ObjectWrap {
      public:
@@ -621,6 +605,7 @@ can probe private values after unwrapping the object:
 
 The implementation of `myobject.cc` is similar as before:
 
+    #define BUILDING_NODE_EXTENSION
     #include <node.h>
     #include "myobject.h"
 
@@ -635,19 +620,15 @@ The implementation of `myobject.cc` is similar as before:
     }
 
     void MyObject::Init() {
-      Isolate* isolate = Isolate::GetCurrent();
-
       // Prepare constructor template
       Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
       tpl->SetClassName(String::NewSymbol("MyObject"));
       tpl->InstanceTemplate()->SetInternalFieldCount(1);
-
-      constructor = Persistent<Function>::New(isolate, tpl->GetFunction());
+      constructor = Persistent<Function>::New(tpl->GetFunction());
     }
 
     Handle<Value> MyObject::New(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       if (args.IsConstructCall()) {
         // Invoked as constructor: `new MyObject(...)`
@@ -664,8 +645,7 @@ The implementation of `myobject.cc` is similar as before:
     }
 
     Handle<Value> MyObject::NewInstance(const Arguments& args) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
+      HandleScope scope;
 
       const unsigned argc = 1;
       Handle<Value> argv[argc] = { args[0] };

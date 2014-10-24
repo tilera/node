@@ -31,12 +31,12 @@ var $ArrayBuffer = global.ArrayBuffer;
 
 // -------------------------------------------------------------------
 
-function ArrayBufferConstructor(length) { // length = 1
+function ArrayBufferConstructor(byteLength) { // length = 1
   if (%_IsConstructCall()) {
-    var byteLength = ToPositiveInteger(length, 'invalid_array_buffer_length');
-    %ArrayBufferInitialize(this, byteLength);
+    var l = TO_POSITIVE_INTEGER(byteLength);
+    %ArrayBufferInitialize(this, l);
   } else {
-    throw MakeTypeError('constructor_not_function', ["ArrayBuffer"]);
+    return new $ArrayBuffer(byteLength);
   }
 }
 
@@ -70,19 +70,12 @@ function ArrayBufferSlice(start, end) {
     fin = MathMin(relativeEnd, this.byteLength);
   }
 
-  if (fin < first) {
-    fin = first;
-  }
   var newLen = fin - first;
   // TODO(dslomov): implement inheritance
   var result = new $ArrayBuffer(newLen);
 
   %ArrayBufferSliceImpl(this, result, first);
   return result;
-}
-
-function ArrayBufferIsView(obj) {
-  return %ArrayBufferIsView(obj);
 }
 
 function SetUpArrayBuffer() {
@@ -96,10 +89,6 @@ function SetUpArrayBuffer() {
   %SetProperty($ArrayBuffer.prototype, "constructor", $ArrayBuffer, DONT_ENUM);
 
   InstallGetter($ArrayBuffer.prototype, "byteLength", ArrayBufferGetByteLength);
-
-  InstallFunctions($ArrayBuffer, DONT_ENUM, $Array(
-      "isView", ArrayBufferIsView
-  ));
 
   InstallFunctions($ArrayBuffer.prototype, DONT_ENUM, $Array(
       "slice", ArrayBufferSlice

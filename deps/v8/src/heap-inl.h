@@ -69,7 +69,7 @@ void PromotionQueue::insert(HeapObject* target, int size) {
   *(--rear_) = size;
   // Assert no overflow into live objects.
 #ifdef DEBUG
-  SemiSpace::AssertValidRange(target->GetIsolate()->heap()->new_space()->top(),
+  SemiSpace::AssertValidRange(HEAP->new_space()->top(),
                               reinterpret_cast<Address>(rear_));
 #endif
 }
@@ -140,11 +140,12 @@ MaybeObject* Heap::AllocateOneByteInternalizedString(Vector<const uint8_t> str,
   // Compute map and object size.
   Map* map = ascii_internalized_string_map();
   int size = SeqOneByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, OLD_DATA_SPACE, TENURED);
 
   // Allocate string.
   Object* result;
-  { MaybeObject* maybe_result = AllocateRaw(size, space, OLD_DATA_SPACE);
+  { MaybeObject* maybe_result = (size > Page::kMaxNonCodeHeapObjectSize)
+                   ? lo_space_->AllocateRaw(size, NOT_EXECUTABLE)
+                   : old_data_space_->AllocateRaw(size);
     if (!maybe_result->ToObject(&result)) return maybe_result;
   }
 
@@ -173,11 +174,12 @@ MaybeObject* Heap::AllocateTwoByteInternalizedString(Vector<const uc16> str,
   // Compute map and object size.
   Map* map = internalized_string_map();
   int size = SeqTwoByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, OLD_DATA_SPACE, TENURED);
 
   // Allocate string.
   Object* result;
-  { MaybeObject* maybe_result = AllocateRaw(size, space, OLD_DATA_SPACE);
+  { MaybeObject* maybe_result = (size > Page::kMaxNonCodeHeapObjectSize)
+                   ? lo_space_->AllocateRaw(size, NOT_EXECUTABLE)
+                   : old_data_space_->AllocateRaw(size);
     if (!maybe_result->ToObject(&result)) return maybe_result;
   }
 
@@ -206,17 +208,11 @@ MaybeObject* Heap::CopyFixedDoubleArray(FixedDoubleArray* src) {
 }
 
 
-MaybeObject* Heap::CopyConstantPoolArray(ConstantPoolArray* src) {
-  return CopyConstantPoolArrayWithMap(src, src->map());
-}
-
-
 MaybeObject* Heap::AllocateRaw(int size_in_bytes,
                                AllocationSpace space,
                                AllocationSpace retry_space) {
-  ASSERT(AllowHandleAllocation::IsAllowed());
-  ASSERT(AllowHeapAllocation::IsAllowed());
-  ASSERT(gc_state_ == NOT_IN_GC);
+  SLOW_ASSERT(!isolate_->optimizing_compiler_thread()->IsOptimizerThread());
+  ASSERT(allocation_allowed_ && gc_state_ == NOT_IN_GC);
   ASSERT(space != NEW_SPACE ||
          retry_space == OLD_POINTER_SPACE ||
          retry_space == OLD_DATA_SPACE ||
@@ -250,8 +246,6 @@ MaybeObject* Heap::AllocateRaw(int size_in_bytes,
     result = lo_space_->AllocateRaw(size_in_bytes, NOT_EXECUTABLE);
   } else if (CELL_SPACE == space) {
     result = cell_space_->AllocateRaw(size_in_bytes);
-  } else if (PROPERTY_CELL_SPACE == space) {
-    result = property_cell_space_->AllocateRaw(size_in_bytes);
   } else {
     ASSERT(MAP_SPACE == space);
     result = map_space_->AllocateRaw(size_in_bytes);
@@ -293,6 +287,28 @@ void Heap::FinalizeExternalString(String* string) {
     (*resource_addr)->Dispose();
     *resource_addr = NULL;
   }
+}
+
+
+MaybeObject* Heap::AllocateRawMap() {
+#ifdef DEBUG
+  isolate_->counters()->objs_since_last_full()->Increment();
+  isolate_->counters()->objs_since_last_young()->Increment();
+#endif
+  MaybeObject* result = map_space_->AllocateRaw(Map::kSize);
+  if (result->IsFailure()) old_gen_exhausted_ = true;
+  return result;
+}
+
+
+MaybeObject* Heap::AllocateRawCell() {
+#ifdef DEBUG
+  isolate_->counters()->objs_since_last_full()->Increment();
+  isolate_->counters()->objs_since_last_young()->Increment();
+#endif
+  MaybeObject* result = cell_space_->AllocateRaw(JSGlobalPropertyCell::kSize);
+  if (result->IsFailure()) old_gen_exhausted_ = true;
+  return result;
 }
 
 
@@ -392,8 +408,7 @@ AllocationSpace Heap::TargetSpaceId(InstanceType type) {
   ASSERT(type != MAP_TYPE);
   ASSERT(type != CODE_TYPE);
   ASSERT(type != ODDBALL_TYPE);
-  ASSERT(type != CELL_TYPE);
-  ASSERT(type != PROPERTY_CELL_TYPE);
+  ASSERT(type != JS_GLOBAL_PROPERTY_CELL_TYPE);
 
   if (type <= LAST_NAME_TYPE) {
     if (type == SYMBOL_TYPE) return OLD_POINTER_SPACE;
@@ -407,43 +422,6 @@ AllocationSpace Heap::TargetSpaceId(InstanceType type) {
   } else {
     return (type <= LAST_DATA_TYPE) ? OLD_DATA_SPACE : OLD_POINTER_SPACE;
   }
-}
-
-
-bool Heap::AllowedToBeMigrated(HeapObject* object, AllocationSpace dst) {
-  // Object migration is governed by the following rules:
-  //
-  // 1) Objects in new-space can be migrated to one of the old spaces
-  //    that matches their target space or they stay in new-space.
-  // 2) Objects in old-space stay in the same space when migrating.
-  // 3) Fillers (two or more words) can migrate due to left-trimming of
-  //    fixed arrays in new-space, old-data-space and old-pointer-space.
-  // 4) Fillers (one word) can never migrate, they are skipped by
-  //    incremental marking explicitly to prevent invalid pattern.
-  //
-  // Since this function is used for debugging only, we do not place
-  // asserts here, but check everything explicitly.
-  if (object->map() == one_pointer_filler_map()) return false;
-  InstanceType type = object->map()->instance_type();
-  MemoryChunk* chunk = MemoryChunk::FromAddress(object->address());
-  AllocationSpace src = chunk->owner()->identity();
-  switch (src) {
-    case NEW_SPACE:
-      return dst == src || dst == TargetSpaceId(type);
-    case OLD_POINTER_SPACE:
-      return dst == src && (dst == TargetSpaceId(type) || object->IsFiller());
-    case OLD_DATA_SPACE:
-      return dst == src && dst == TargetSpaceId(type);
-    case CODE_SPACE:
-      return dst == src && type == CODE_TYPE;
-    case MAP_SPACE:
-    case CELL_SPACE:
-    case PROPERTY_CELL_SPACE:
-    case LO_SPACE:
-      return false;
-  }
-  UNREACHABLE();
-  return false;
 }
 
 
@@ -477,9 +455,8 @@ void Heap::ScavengePointer(HeapObject** p) {
   ScavengeObject(p, *p);
 }
 
-
 void Heap::ScavengeObject(HeapObject** p, HeapObject* object) {
-  ASSERT(object->GetIsolate()->heap()->InFromSpace(object));
+  ASSERT(HEAP->InFromSpace(object));
 
   // We use the first word (where the map pointer usually is) of a heap
   // object to record the forwarding pointer.  A forwarding pointer can
@@ -491,22 +468,22 @@ void Heap::ScavengeObject(HeapObject** p, HeapObject* object) {
   // copied.
   if (first_word.IsForwardingAddress()) {
     HeapObject* dest = first_word.ToForwardingAddress();
-    ASSERT(object->GetIsolate()->heap()->InFromSpace(*p));
+    ASSERT(HEAP->InFromSpace(*p));
     *p = dest;
     return;
   }
 
-  if (FLAG_trace_track_allocation_sites && object->IsJSObject()) {
-    if (AllocationMemento::FindForJSObject(JSObject::cast(object), true) !=
-        NULL) {
-      object->GetIsolate()->heap()->allocation_mementos_found_++;
-    }
-  }
-
-  // AllocationMementos are unrooted and shouldn't survive a scavenge
-  ASSERT(object->map() != object->GetHeap()->allocation_memento_map());
   // Call the slow part of scavenge object.
   return ScavengeObjectSlow(p, object);
+}
+
+
+MaybeObject* Heap::AllocateEmptyJSArrayWithAllocationSite(
+      ElementsKind elements_kind,
+      Handle<Object> allocation_site_payload) {
+  return AllocateJSArrayAndStorageWithAllocationSite(elements_kind, 0, 0,
+      allocation_site_payload,
+      DONT_INITIALIZE_ARRAY_ELEMENTS);
 }
 
 
@@ -558,7 +535,7 @@ intptr_t Heap::AdjustAmountOfExternalAllocatedMemory(
     if (amount >= 0) {
       amount_of_external_allocated_memory_ = amount;
     } else {
-      // Give up and reset the counters in case of an underflow.
+      // Give up and reset the counters in case of an overflow.
       amount_of_external_allocated_memory_ = 0;
       amount_of_external_allocated_memory_at_last_global_gc_ = 0;
     }
@@ -566,15 +543,17 @@ intptr_t Heap::AdjustAmountOfExternalAllocatedMemory(
   if (FLAG_trace_external_memory) {
     PrintPID("%8.0f ms: ", isolate()->time_millis_since_init());
     PrintF("Adjust amount of external memory: delta=%6" V8_PTR_PREFIX "d KB, "
-           "amount=%6" V8_PTR_PREFIX "d KB, since_gc=%6" V8_PTR_PREFIX "d KB, "
-           "isolate=0x%08" V8PRIxPTR ".\n",
-           change_in_bytes / KB,
-           amount_of_external_allocated_memory_ / KB,
-           PromotedExternalMemorySize() / KB,
+           " amount=%6" V8_PTR_PREFIX "d KB, isolate=0x%08" V8PRIxPTR ".\n",
+           change_in_bytes / 1024, amount_of_external_allocated_memory_ / 1024,
            reinterpret_cast<intptr_t>(isolate()));
   }
   ASSERT(amount_of_external_allocated_memory_ >= 0);
   return amount_of_external_allocated_memory_;
+}
+
+
+void Heap::SetLastScriptId(Object* last_script_id) {
+  roots_[kLastScriptIdRootIndex] = last_script_id;
 }
 
 
@@ -585,10 +564,10 @@ Isolate* Heap::isolate() {
 
 
 #ifdef DEBUG
-#define GC_GREEDY_CHECK(ISOLATE) \
-  if (FLAG_gc_greedy) (ISOLATE)->heap()->GarbageCollectionGreedyCheck()
+#define GC_GREEDY_CHECK() \
+  if (FLAG_gc_greedy) HEAP->GarbageCollectionGreedyCheck()
 #else
-#define GC_GREEDY_CHECK(ISOLATE) { }
+#define GC_GREEDY_CHECK() { }
 #endif
 
 // Calls the FUNCTION_CALL function and retries it up to three times
@@ -600,7 +579,7 @@ Isolate* Heap::isolate() {
 
 #define CALL_AND_RETRY(ISOLATE, FUNCTION_CALL, RETURN_VALUE, RETURN_EMPTY, OOM)\
   do {                                                                         \
-    GC_GREEDY_CHECK(ISOLATE);                                                  \
+    GC_GREEDY_CHECK();                                                         \
     MaybeObject* __maybe_object__ = FUNCTION_CALL;                             \
     Object* __object__ = NULL;                                                 \
     if (__maybe_object__->ToObject(&__object__)) RETURN_VALUE;                 \
@@ -608,7 +587,7 @@ Isolate* Heap::isolate() {
       OOM;                                                                     \
     }                                                                          \
     if (!__maybe_object__->IsRetryAfterGC()) RETURN_EMPTY;                     \
-    (ISOLATE)->heap()->CollectGarbage(Failure::cast(__maybe_object__)->        \
+    ISOLATE->heap()->CollectGarbage(Failure::cast(__maybe_object__)->          \
                                     allocation_space(),                        \
                                     "allocation failure");                     \
     __maybe_object__ = FUNCTION_CALL;                                          \
@@ -617,8 +596,8 @@ Isolate* Heap::isolate() {
       OOM;                                                                     \
     }                                                                          \
     if (!__maybe_object__->IsRetryAfterGC()) RETURN_EMPTY;                     \
-    (ISOLATE)->counters()->gc_last_resort_from_handles()->Increment();         \
-    (ISOLATE)->heap()->CollectAllAvailableGarbage("last resort gc");           \
+    ISOLATE->counters()->gc_last_resort_from_handles()->Increment();           \
+    ISOLATE->heap()->CollectAllAvailableGarbage("last resort gc");             \
     {                                                                          \
       AlwaysAllocateScope __scope__;                                           \
       __maybe_object__ = FUNCTION_CALL;                                        \
@@ -662,6 +641,17 @@ Isolate* Heap::isolate() {
                  return __maybe_object__)
 
 
+#ifdef DEBUG
+
+inline bool Heap::allow_allocation(bool new_state) {
+  bool old = allocation_allowed_;
+  allocation_allowed_ = new_state;
+  return old;
+}
+
+#endif
+
+
 void ExternalStringTable::AddString(String* string) {
   ASSERT(string->IsExternalString());
   if (heap_->InNewSpace(string)) {
@@ -690,13 +680,15 @@ void ExternalStringTable::Verify() {
 #ifdef DEBUG
   for (int i = 0; i < new_space_strings_.length(); ++i) {
     Object* obj = Object::cast(new_space_strings_[i]);
+    // TODO(yangguo): check that the object is indeed an external string.
     ASSERT(heap_->InNewSpace(obj));
-    ASSERT(obj != heap_->the_hole_value());
+    ASSERT(obj != HEAP->the_hole_value());
   }
   for (int i = 0; i < old_space_strings_.length(); ++i) {
     Object* obj = Object::cast(old_space_strings_[i]);
+    // TODO(yangguo): check that the object is indeed an external string.
     ASSERT(!heap_->InNewSpace(obj));
-    ASSERT(obj != heap_->the_hole_value());
+    ASSERT(obj != HEAP->the_hole_value());
   }
 #endif
 }
@@ -719,6 +711,19 @@ void ExternalStringTable::ShrinkNewStrings(int position) {
 }
 
 
+void ErrorObjectList::Add(JSObject* object) {
+  list_.Add(object);
+}
+
+
+void ErrorObjectList::Iterate(ObjectVisitor* v) {
+  if (!list_.is_empty()) {
+    Object** start = &list_[0];
+    v->VisitPointers(start, start + list_.length());
+  }
+}
+
+
 void Heap::ClearInstanceofCache() {
   set_instanceof_cache_function(the_hole_value());
 }
@@ -738,7 +743,7 @@ void Heap::CompletelyClearInstanceofCache() {
 MaybeObject* TranscendentalCache::Get(Type type, double input) {
   SubCache* cache = caches_[type];
   if (cache == NULL) {
-    caches_[type] = cache = new SubCache(isolate_, type);
+    caches_[type] = cache = new SubCache(type);
   }
   return cache->Get(input);
 }
@@ -803,29 +808,25 @@ AlwaysAllocateScope::AlwaysAllocateScope() {
   // non-handle code to call handle code. The code still works but
   // performance will degrade, so we want to catch this situation
   // in debug mode.
-  Isolate* isolate = Isolate::Current();
-  ASSERT(isolate->heap()->always_allocate_scope_depth_ == 0);
-  isolate->heap()->always_allocate_scope_depth_++;
+  ASSERT(HEAP->always_allocate_scope_depth_ == 0);
+  HEAP->always_allocate_scope_depth_++;
 }
 
 
 AlwaysAllocateScope::~AlwaysAllocateScope() {
-  Isolate* isolate = Isolate::Current();
-  isolate->heap()->always_allocate_scope_depth_--;
-  ASSERT(isolate->heap()->always_allocate_scope_depth_ == 0);
+  HEAP->always_allocate_scope_depth_--;
+  ASSERT(HEAP->always_allocate_scope_depth_ == 0);
 }
 
 
 #ifdef VERIFY_HEAP
-NoWeakObjectVerificationScope::NoWeakObjectVerificationScope() {
-  Isolate* isolate = Isolate::Current();
-  isolate->heap()->no_weak_object_verification_scope_depth_++;
+NoWeakEmbeddedMapsVerificationScope::NoWeakEmbeddedMapsVerificationScope() {
+  HEAP->no_weak_embedded_maps_verification_scope_depth_++;
 }
 
 
-NoWeakObjectVerificationScope::~NoWeakObjectVerificationScope() {
-  Isolate* isolate = Isolate::Current();
-  isolate->heap()->no_weak_object_verification_scope_depth_--;
+NoWeakEmbeddedMapsVerificationScope::~NoWeakEmbeddedMapsVerificationScope() {
+  HEAP->no_weak_embedded_maps_verification_scope_depth_--;
 }
 #endif
 
@@ -834,7 +835,7 @@ void VerifyPointersVisitor::VisitPointers(Object** start, Object** end) {
   for (Object** current = start; current < end; current++) {
     if ((*current)->IsHeapObject()) {
       HeapObject* object = HeapObject::cast(*current);
-      CHECK(object->GetIsolate()->heap()->Contains(object));
+      CHECK(HEAP->Contains(object));
       CHECK(object->map()->IsMap());
     }
   }
@@ -842,25 +843,61 @@ void VerifyPointersVisitor::VisitPointers(Object** start, Object** end) {
 
 
 double GCTracer::SizeOfHeapObjects() {
-  return (static_cast<double>(heap_->SizeOfObjects())) / MB;
+  return (static_cast<double>(HEAP->SizeOfObjects())) / MB;
 }
 
 
 DisallowAllocationFailure::DisallowAllocationFailure() {
 #ifdef DEBUG
-  Isolate* isolate = Isolate::Current();
-  old_state_ = isolate->heap()->disallow_allocation_failure_;
-  isolate->heap()->disallow_allocation_failure_ = true;
+  old_state_ = HEAP->disallow_allocation_failure_;
+  HEAP->disallow_allocation_failure_ = true;
 #endif
 }
 
 
 DisallowAllocationFailure::~DisallowAllocationFailure() {
 #ifdef DEBUG
-  Isolate* isolate = Isolate::Current();
-  isolate->heap()->disallow_allocation_failure_ = old_state_;
+  HEAP->disallow_allocation_failure_ = old_state_;
 #endif
 }
+
+
+#ifdef DEBUG
+AssertNoAllocation::AssertNoAllocation() {
+  Isolate* isolate = ISOLATE;
+  active_ = !isolate->optimizing_compiler_thread()->IsOptimizerThread();
+  if (active_) {
+    old_state_ = isolate->heap()->allow_allocation(false);
+  }
+}
+
+
+AssertNoAllocation::~AssertNoAllocation() {
+  if (active_) HEAP->allow_allocation(old_state_);
+}
+
+
+DisableAssertNoAllocation::DisableAssertNoAllocation() {
+  Isolate* isolate = ISOLATE;
+  active_ = !isolate->optimizing_compiler_thread()->IsOptimizerThread();
+  if (active_) {
+    old_state_ = isolate->heap()->allow_allocation(true);
+  }
+}
+
+
+DisableAssertNoAllocation::~DisableAssertNoAllocation() {
+  if (active_) HEAP->allow_allocation(old_state_);
+}
+
+#else
+
+AssertNoAllocation::AssertNoAllocation() { }
+AssertNoAllocation::~AssertNoAllocation() { }
+DisableAssertNoAllocation::DisableAssertNoAllocation() { }
+DisableAssertNoAllocation::~DisableAssertNoAllocation() { }
+
+#endif
 
 
 } }  // namespace v8::internal

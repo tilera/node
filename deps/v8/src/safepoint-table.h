@@ -151,7 +151,7 @@ class SafepointTable BASE_EMBEDDED {
 
   static void PrintBits(uint8_t byte, int digits);
 
-  DisallowHeapAllocation no_allocation_;
+  AssertNoAllocation no_allocation_;
   Code* code_;
   unsigned length_;
   unsigned entry_size_;

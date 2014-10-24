@@ -49,6 +49,9 @@ class RuntimeProfiler {
   void Reset();
   void TearDown();
 
+  Object** SamplerWindowAddress();
+  int SamplerWindowSize();
+
   void NotifyICChanged() { any_ic_changed_ = true; }
 
   // Rate limiting support.
@@ -71,8 +74,6 @@ class RuntimeProfiler {
   int LookupSample(JSFunction* function);
 
   void AddSample(JSFunction* function, int weight);
-
-  bool CodeSizeOKForOSR(Code* shared_code);
 
   Isolate* isolate_;
 

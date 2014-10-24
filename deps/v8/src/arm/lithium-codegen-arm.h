@@ -32,7 +32,6 @@
 
 #include "arm/lithium-gap-resolver-arm.h"
 #include "deoptimizer.h"
-#include "lithium-codegen.h"
 #include "safepoint-table.h"
 #include "scopes.h"
 #include "v8utils.h"
@@ -44,18 +43,28 @@ namespace internal {
 class LDeferredCode;
 class SafepointGenerator;
 
-class LCodeGen: public LCodeGenBase {
+class LCodeGen BASE_EMBEDDED {
  public:
   LCodeGen(LChunk* chunk, MacroAssembler* assembler, CompilationInfo* info)
-      : LCodeGenBase(chunk, assembler, info),
+      : zone_(info->zone()),
+        chunk_(static_cast<LPlatformChunk*>(chunk)),
+        masm_(assembler),
+        info_(info),
+        current_block_(-1),
+        current_instruction_(-1),
+        instructions_(chunk->instructions()),
         deoptimizations_(4, info->zone()),
         deopt_jump_table_(4, info->zone()),
         deoptimization_literals_(8, info->zone()),
+        prototype_maps_(0, info->zone()),
+        transition_maps_(0, info->zone()),
         inlined_function_count_(0),
         scope_(info->scope()),
+        status_(UNUSED),
         translations_(info->zone()),
         deferred_(8, info->zone()),
         osr_pc_offset_(-1),
+        last_lazy_deopt_pc_(0),
         frame_is_built_(false),
         safepoints_(info->zone()),
         resolver_(this),
@@ -64,6 +73,15 @@ class LCodeGen: public LCodeGenBase {
   }
 
 
+  // Simple accessors.
+  MacroAssembler* masm() const { return masm_; }
+  CompilationInfo* info() const { return info_; }
+  Isolate* isolate() const { return info_->isolate(); }
+  Factory* factory() const { return isolate()->factory(); }
+  Heap* heap() const { return isolate()->heap(); }
+  Zone* zone() const { return zone_; }
+
+  // TODO(svenpanne) Use this consistently.
   int LookupDestination(int block_id) const {
     return chunk()->LookupDestination(block_id);
   }
@@ -100,8 +118,7 @@ class LCodeGen: public LCodeGenBase {
   DwVfpRegister EmitLoadDoubleRegister(LOperand* op,
                                        SwVfpRegister flt_scratch,
                                        DwVfpRegister dbl_scratch);
-  int32_t ToRepresentation(LConstantOperand* op, const Representation& r) const;
-  int32_t ToInteger32(LConstantOperand* op) const;
+  int ToInteger32(LConstantOperand* op) const;
   Smi* ToSmi(LConstantOperand* op) const;
   double ToDouble(LConstantOperand* op) const;
   Operand ToOperand(LOperand* op);
@@ -123,6 +140,10 @@ class LCodeGen: public LCodeGenBase {
   void FinishCode(Handle<Code> code);
 
   // Deferred code support.
+  void DoDeferredBinaryOpStub(LPointerMap* pointer_map,
+                              LOperand* left_argument,
+                              LOperand* right_argument,
+                              Token::Value op);
   void DoDeferredNumberTagD(LNumberTagD* instr);
 
   enum IntegerSignedness { SIGNED_INT32, UNSIGNED_INT32 };
@@ -133,12 +154,15 @@ class LCodeGen: public LCodeGenBase {
   void DoDeferredTaggedToI(LTaggedToI* instr);
   void DoDeferredMathAbsTaggedHeapNumber(LMathAbs* instr);
   void DoDeferredStackCheck(LStackCheck* instr);
+  void DoDeferredRandom(LRandom* instr);
   void DoDeferredStringCharCodeAt(LStringCharCodeAt* instr);
   void DoDeferredStringCharFromCode(LStringCharFromCode* instr);
+  void DoDeferredAllocateObject(LAllocateObject* instr);
   void DoDeferredAllocate(LAllocate* instr);
   void DoDeferredInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr,
                                        Label* map_check);
-  void DoDeferredInstanceMigration(LCheckMaps* instr, Register object);
+
+  void DoCheckMapCommon(Register map_reg, Handle<Map> map, LEnvironment* env);
 
   // Parallel move support.
   void DoParallelMove(LParallelMove* move);
@@ -154,7 +178,10 @@ class LCodeGen: public LCodeGenBase {
                                  int additional_offset);
 
   // Emit frame translation commands for an environment.
-  void WriteTranslation(LEnvironment* environment, Translation* translation);
+  void WriteTranslation(LEnvironment* environment,
+                        Translation* translation,
+                        int* arguments_index,
+                        int* arguments_count);
 
   // Declare methods that deal with the individual node types.
 #define DECLARE_DO(type) void Do##type(L##type* node);
@@ -162,15 +189,30 @@ class LCodeGen: public LCodeGenBase {
 #undef DECLARE_DO
 
  private:
+  enum Status {
+    UNUSED,
+    GENERATING,
+    DONE,
+    ABORTED
+  };
+
+  bool is_unused() const { return status_ == UNUSED; }
+  bool is_generating() const { return status_ == GENERATING; }
+  bool is_done() const { return status_ == DONE; }
+  bool is_aborted() const { return status_ == ABORTED; }
+
   StrictModeFlag strict_mode_flag() const {
     return info()->is_classic_mode() ? kNonStrictMode : kStrictMode;
   }
 
+  LPlatformChunk* chunk() const { return chunk_; }
   Scope* scope() const { return scope_; }
+  HGraph* graph() const { return chunk()->graph(); }
 
   Register scratch0() { return r9; }
-  LowDwVfpRegister double_scratch0() { return kScratchDoubleReg; }
+  DwVfpRegister double_scratch0() { return kScratchDoubleReg; }
 
+  int GetNextEmittedBlock() const;
   LInstruction* GetNextInstruction();
 
   void EmitClassOfTest(Label* if_true,
@@ -182,19 +224,18 @@ class LCodeGen: public LCodeGenBase {
 
   int GetStackSlotCount() const { return chunk()->spill_slot_count(); }
 
-  void Abort(BailoutReason reason);
+  void Abort(const char* reason);
+  void FPRINTF_CHECKING Comment(const char* format, ...);
 
   void AddDeferredCode(LDeferredCode* code) { deferred_.Add(code, zone()); }
 
   // Code generation passes.  Returns true if code generation should
   // continue.
   bool GeneratePrologue();
+  bool GenerateBody();
   bool GenerateDeferredCode();
   bool GenerateDeoptJumpTable();
   bool GenerateSafepointTable();
-
-  // Generates the custom OSR entrypoint and sets the osr_pc_offset.
-  void GenerateOsrPrologue();
 
   enum SafepointMode {
     RECORD_SIMPLE_SAFEPOINT,
@@ -216,8 +257,7 @@ class LCodeGen: public LCodeGenBase {
 
   void CallRuntime(const Runtime::Function* function,
                    int num_arguments,
-                   LInstruction* instr,
-                   SaveFPRegsMode save_doubles = kDontSaveFPRegs);
+                   LInstruction* instr);
 
   void CallRuntime(Runtime::FunctionId id,
                    int num_arguments,
@@ -226,11 +266,9 @@ class LCodeGen: public LCodeGenBase {
     CallRuntime(function, num_arguments, instr);
   }
 
-  void LoadContextFromDeferred(LOperand* context);
   void CallRuntimeFromDeferred(Runtime::FunctionId id,
                                int argc,
-                               LInstruction* instr,
-                               LOperand* context);
+                               LInstruction* instr);
 
   enum R1State {
     R1_UNINITIALIZED,
@@ -246,24 +284,26 @@ class LCodeGen: public LCodeGenBase {
                          CallKind call_kind,
                          R1State r1_state);
 
+  void LoadHeapObject(Register result, Handle<HeapObject> object);
+
   void RecordSafepointWithLazyDeopt(LInstruction* instr,
                                     SafepointMode safepoint_mode);
 
   void RegisterEnvironmentForDeoptimization(LEnvironment* environment,
                                             Safepoint::DeoptMode mode);
-  void DeoptimizeIf(Condition condition,
+  void DeoptimizeIf(Condition cc,
                     LEnvironment* environment,
                     Deoptimizer::BailoutType bailout_type);
-  void DeoptimizeIf(Condition condition, LEnvironment* environment);
-  void ApplyCheckIf(Condition condition, LBoundsCheck* check);
+  void DeoptimizeIf(Condition cc, LEnvironment* environment);
+  void SoftDeoptimize(LEnvironment* environment);
 
-  void AddToTranslation(LEnvironment* environment,
-                        Translation* translation,
+  void AddToTranslation(Translation* translation,
                         LOperand* op,
                         bool is_tagged,
                         bool is_uint32,
-                        int* object_index_pointer,
-                        int* dematerialized_index_pointer);
+                        bool arguments_known,
+                        int arguments_index,
+                        int arguments_count);
   void RegisterDependentCodeForEmbeddedMaps(Handle<Code> code);
   void PopulateDeoptimizationData(Handle<Code> code);
   int DefineDeoptimizationLiteral(Handle<Object> literal);
@@ -288,18 +328,14 @@ class LCodeGen: public LCodeGenBase {
   void RecordSafepointWithRegistersAndDoubles(LPointerMap* pointers,
                                               int arguments,
                                               Safepoint::DeoptMode mode);
-
-  void RecordAndWritePosition(int position) V8_OVERRIDE;
+  void RecordPosition(int position);
 
   static Condition TokenToCondition(Token::Value op, bool is_unsigned);
   void EmitGoto(int block);
-  template<class InstrType>
-  void EmitBranch(InstrType instr, Condition condition);
-  template<class InstrType>
-  void EmitFalseBranch(InstrType instr, Condition condition);
+  void EmitBranch(int left_block, int right_block, Condition cc);
   void EmitNumberUntagD(Register input,
                         DwVfpRegister result,
-                        bool allow_undefined_as_nan,
+                        bool deoptimize_on_undefined,
                         bool deoptimize_on_minus_zero,
                         LEnvironment* env,
                         NumberUntagDMode mode);
@@ -325,12 +361,17 @@ class LCodeGen: public LCodeGenBase {
   // true and false label should be made, to optimize fallthrough.
   Condition EmitIsString(Register input,
                          Register temp1,
-                         Label* is_not_string,
-                         SmiCheck check_needed);
+                         Label* is_not_string);
 
   // Emits optimized code for %_IsConstructCall().
   // Caller should branch on equal condition.
   void EmitIsConstructCall(Register temp1, Register temp2);
+
+  void EmitLoadFieldOrConstantFunction(Register result,
+                                       Register object,
+                                       Handle<Map> type,
+                                       Handle<String> name,
+                                       LEnvironment* env);
 
   // Emits optimized code to deep-copy the contents of statically known
   // object graphs (e.g. object literal boilerplate).
@@ -351,7 +392,7 @@ class LCodeGen: public LCodeGenBase {
                                            Register scratch,
                                            LEnvironment* environment);
 
-  void EnsureSpaceForLazyDeopt(int space_needed) V8_OVERRIDE;
+  void EnsureSpaceForLazyDeopt();
   void DoLoadKeyedExternalArray(LLoadKeyed* instr);
   void DoLoadKeyedFixedDoubleArray(LLoadKeyed* instr);
   void DoLoadKeyedFixedArray(LLoadKeyed* instr);
@@ -359,14 +400,26 @@ class LCodeGen: public LCodeGenBase {
   void DoStoreKeyedFixedDoubleArray(LStoreKeyed* instr);
   void DoStoreKeyedFixedArray(LStoreKeyed* instr);
 
+  Zone* zone_;
+  LPlatformChunk* const chunk_;
+  MacroAssembler* const masm_;
+  CompilationInfo* const info_;
+
+  int current_block_;
+  int current_instruction_;
+  const ZoneList<LInstruction*>* instructions_;
   ZoneList<LEnvironment*> deoptimizations_;
   ZoneList<Deoptimizer::JumpTableEntry> deopt_jump_table_;
   ZoneList<Handle<Object> > deoptimization_literals_;
+  ZoneList<Handle<Map> > prototype_maps_;
+  ZoneList<Handle<Map> > transition_maps_;
   int inlined_function_count_;
   Scope* const scope_;
+  Status status_;
   TranslationBuffer translations_;
   ZoneList<LDeferredCode*> deferred_;
   int osr_pc_offset_;
+  int last_lazy_deopt_pc_;
   bool frame_is_built_;
 
   // Builder that keeps track of safepoints in the code. The table
@@ -378,7 +431,7 @@ class LCodeGen: public LCodeGenBase {
 
   Safepoint::Kind expected_safepoint_kind_;
 
-  class PushSafepointRegistersScope V8_FINAL BASE_EMBEDDED {
+  class PushSafepointRegistersScope BASE_EMBEDDED {
    public:
     PushSafepointRegistersScope(LCodeGen* codegen,
                                 Safepoint::Kind kind)
@@ -426,7 +479,7 @@ class LCodeGen: public LCodeGenBase {
 };
 
 
-class LDeferredCode : public ZoneObject {
+class LDeferredCode: public ZoneObject {
  public:
   explicit LDeferredCode(LCodeGen* codegen)
       : codegen_(codegen),
@@ -435,7 +488,7 @@ class LDeferredCode : public ZoneObject {
     codegen->AddDeferredCode(this);
   }
 
-  virtual ~LDeferredCode() {}
+  virtual ~LDeferredCode() { }
   virtual void Generate() = 0;
   virtual LInstruction* instr() = 0;
 

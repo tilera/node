@@ -65,11 +65,11 @@ static void PutIntoWeakMap(Handle<JSWeakMap> weakmap,
 
 static int NumberOfWeakCalls = 0;
 static void WeakPointerCallback(v8::Isolate* isolate,
-                                v8::Persistent<v8::Value>* handle,
+                                v8::Persistent<v8::Value> handle,
                                 void* id) {
   ASSERT(id == reinterpret_cast<void*>(1234));
   NumberOfWeakCalls++;
-  handle->Dispose();
+  handle.Dispose(isolate);
 }
 
 
@@ -114,6 +114,7 @@ TEST(Weakness) {
     HandleScope scope(isolate);
     global_handles->MakeWeak(key.location(),
                              reinterpret_cast<void*>(1234),
+                             NULL,
                              &WeakPointerCallback);
   }
   CHECK(global_handles->IsWeak(key.location()));

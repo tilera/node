@@ -39,6 +39,13 @@ namespace v8 {
 namespace internal {
 
 
+// Zone scopes are in one of two modes.  Either they delete the zone
+// on exit or they do not.
+enum ZoneScopeMode {
+  DELETE_ON_EXIT,
+  DONT_DELETE_ON_EXIT
+};
+
 class Segment;
 class Isolate;
 
@@ -58,7 +65,7 @@ class Isolate;
 class Zone {
  public:
   explicit Zone(Isolate* isolate);
-  ~Zone();
+  ~Zone() { DeleteKeptSegment(); }
   // Allocate 'size' bytes of memory in the Zone; expands the Zone by
   // allocating new segments of memory on demand using malloc().
   inline void* New(int size);
@@ -70,8 +77,7 @@ class Zone {
   // small (size <= kMaximumKeptSegmentSize) segment around if it finds one.
   void DeleteAll();
 
-  // Deletes the last small segment kept around by DeleteAll(). You
-  // may no longer allocate in the Zone after a call to this method.
+  // Deletes the last small segment kept around by DeleteAll().
   void DeleteKeptSegment();
 
   // Returns true if more memory has been allocated in zones than
@@ -80,12 +86,13 @@ class Zone {
 
   inline void adjust_segment_bytes_allocated(int delta);
 
-  inline unsigned allocation_size() { return allocation_size_; }
-
   inline Isolate* isolate() { return isolate_; }
+
+  static unsigned allocation_size_;
 
  private:
   friend class Isolate;
+  friend class ZoneScope;
 
   // All pointers returned from New() have this alignment.  In addition, if the
   // object being allocated has a size that is divisible by 8 then its alignment
@@ -102,10 +109,7 @@ class Zone {
   static const int kMaximumKeptSegmentSize = 64 * KB;
 
   // Report zone excess when allocation exceeds this limit.
-  static const int kExcessLimit = 256 * MB;
-
-  // The number of bytes allocated in this zone so far.
-  unsigned allocation_size_;
+  int zone_excess_limit_;
 
   // The number of bytes allocated in segments.  Note that this number
   // includes memory allocated from the OS but not yet allocated from
@@ -120,16 +124,18 @@ class Zone {
 
   // Creates a new segment, sets it size, and pushes it to the front
   // of the segment chain. Returns the new segment.
-  INLINE(Segment* NewSegment(int size));
+  Segment* NewSegment(int size);
 
   // Deletes the given segment. Does not touch the segment chain.
-  INLINE(void DeleteSegment(Segment* segment, int size));
+  void DeleteSegment(Segment* segment, int size);
 
   // The free region in the current (front) segment is represented as
   // the half-open interval [position, limit). The 'position' variable
   // is guaranteed to be aligned as dictated by kAlignment.
   Address position_;
   Address limit_;
+
+  int scope_nesting_;
 
   Segment* segment_head_;
   Isolate* isolate_;
@@ -156,20 +162,6 @@ class ZoneObject {
 };
 
 
-// The ZoneScope is used to automatically call DeleteAll() on a
-// Zone when the ZoneScope is destroyed (i.e. goes out of scope)
-struct ZoneScope {
- public:
-  explicit ZoneScope(Zone* zone) : zone_(zone) { }
-  ~ZoneScope() { zone_->DeleteAll(); }
-
-  Zone* zone() { return zone_; }
-
- private:
-  Zone* zone_;
-};
-
-
 // The ZoneAllocationPolicy is used to specialize generic data
 // structures to allocate themselves and their elements in the Zone.
 struct ZoneAllocationPolicy {
@@ -177,7 +169,6 @@ struct ZoneAllocationPolicy {
   explicit ZoneAllocationPolicy(Zone* zone) : zone_(zone) { }
   INLINE(void* New(size_t size));
   INLINE(static void Delete(void *pointer)) { }
-  Zone* zone() { return zone_; }
 
  private:
   Zone* zone_;
@@ -202,7 +193,7 @@ class ZoneList: public List<T, ZoneAllocationPolicy> {
   ZoneList(const ZoneList<T>& other, Zone* zone)
       : List<T, ZoneAllocationPolicy>(other.length(),
                                       ZoneAllocationPolicy(zone)) {
-    AddAll(other, zone);
+    AddAll(other, ZoneAllocationPolicy(zone));
   }
 
   // We add some convenience wrappers so that we can pass in a Zone
@@ -210,7 +201,8 @@ class ZoneList: public List<T, ZoneAllocationPolicy> {
   INLINE(void Add(const T& element, Zone* zone)) {
     List<T, ZoneAllocationPolicy>::Add(element, ZoneAllocationPolicy(zone));
   }
-  INLINE(void AddAll(const List<T, ZoneAllocationPolicy>& other, Zone* zone)) {
+  INLINE(void AddAll(const List<T, ZoneAllocationPolicy>& other,
+                     Zone* zone)) {
     List<T, ZoneAllocationPolicy>::AddAll(other, ZoneAllocationPolicy(zone));
   }
   INLINE(void AddAll(const Vector<T>& other, Zone* zone)) {
@@ -237,6 +229,31 @@ class ZoneList: public List<T, ZoneAllocationPolicy> {
 };
 
 
+// ZoneScopes keep track of the current parsing and compilation
+// nesting and cleans up generated ASTs in the Zone when exiting the
+// outer-most scope.
+class ZoneScope BASE_EMBEDDED {
+ public:
+  INLINE(ZoneScope(Zone* zone, ZoneScopeMode mode));
+
+  virtual ~ZoneScope();
+
+  inline bool ShouldDeleteOnExit();
+
+  // For ZoneScopes that do not delete on exit by default, call this
+  // method to request deletion on exit.
+  void DeleteOnExit() {
+    mode_ = DELETE_ON_EXIT;
+  }
+
+  inline static int nesting();
+
+ private:
+  Zone* zone_;
+  ZoneScopeMode mode_;
+};
+
+
 // A zone splay tree.  The config type parameter encapsulates the
 // different configurations of a concrete splay tree (see splay-tree.h).
 // The tree itself and all its elements are allocated in the Zone.
@@ -246,11 +263,6 @@ class ZoneSplayTree: public SplayTree<Config, ZoneAllocationPolicy> {
   explicit ZoneSplayTree(Zone* zone)
       : SplayTree<Config, ZoneAllocationPolicy>(ZoneAllocationPolicy(zone)) {}
   ~ZoneSplayTree();
-
-  INLINE(void* operator new(size_t size, Zone* zone));
-
-  void operator delete(void* pointer) { UNREACHABLE(); }
-  void operator delete(void* pointer, Zone* zone) { UNREACHABLE(); }
 };
 
 

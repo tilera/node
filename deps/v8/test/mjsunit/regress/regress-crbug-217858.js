@@ -25,13 +25,16 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --noanalyze_environment_liveness
+// Flags: --allow-natives-syntax
 
 var r = /r/;
+var a = "";
 function f() {
-  r[r] = function() {};
+  %OptimizeFunctionOnNextCall(f, "osr");
+  for (var i = 0; i < 1000000; i++) {
+    a += i.toString();
+    r[r] = function() {};
+  }
 }
 
-for (var i = 0; i < 300000; i++) {
-  f();
-}
+f();

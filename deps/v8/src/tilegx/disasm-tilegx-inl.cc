@@ -10055,7 +10055,7 @@ print_insn_tilegx (unsigned char * memaddr)
 {
   struct tilegx_decoded_instruction
     decoded[TILEGX_MAX_INSTRUCTIONS_PER_BUNDLE];
-  unsigned char opbuf[TILEGX_BUNDLE_SIZE_IN_BYTES];
+  unsigned long opbuf[TILEGX_BUNDLE_SIZE_IN_BYTES / sizeof(unsigned long)];
   int i, num_instructions, num_printed;
   tilegx_mnemonic padding_mnemonic;
 
@@ -10150,7 +10150,7 @@ print_insn_tilegx_buf (unsigned char * memaddr, char *out_buf)
   char *buf_p = out_buf;
   struct tilegx_decoded_instruction
     decoded[TILEGX_MAX_INSTRUCTIONS_PER_BUNDLE];
-  unsigned char opbuf[TILEGX_BUNDLE_SIZE_IN_BYTES];
+  unsigned long opbuf[TILEGX_BUNDLE_SIZE_IN_BYTES / sizeof(unsigned long)];
   int i, num_instructions, num_printed;
   tilegx_mnemonic padding_mnemonic;
 

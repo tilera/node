@@ -5,7 +5,6 @@ PYTHON ?= python
 NINJA ?= ninja
 DESTDIR ?=
 SIGN ?=
-PREFIX ?= /usr/local
 
 NODE ?= ./node
 
@@ -13,12 +12,6 @@ NODE ?= ./node
 # To do quiet/pretty builds, run `make V=` to set V to an empty string,
 # or set the V environment variable to an empty string.
 V ?= 1
-
-ifeq ($(USE_NINJA),1)
-ifneq ($(V),)
-NINJA := $(NINJA) -v
-endif
-endif
 
 # BUILDTYPE=Debug builds both release and debug builds. If you want to compile
 # just the debug build, run `make -C out BUILDTYPE=Debug` instead.
@@ -50,7 +43,7 @@ node_g: config.gypi out/Makefile
 	ln -fs out/Debug/node $@
 endif
 
-out/Makefile: common.gypi deps/uv/uv.gyp deps/http_parser/http_parser.gyp deps/zlib/zlib.gyp deps/v8/build/toolchain.gypi deps/v8/build/features.gypi deps/v8/tools/gyp/v8.gyp node.gyp config.gypi
+out/Makefile: common.gypi deps/uv/uv.gyp deps/http_parser/http_parser.gyp deps/zlib/zlib.gyp deps/v8/build/common.gypi deps/v8/tools/gyp/v8.gyp node.gyp config.gypi
 ifeq ($(USE_NINJA),1)
 	touch out/Makefile
 	$(PYTHON) tools/gyp_node.py -f ninja
@@ -59,17 +52,13 @@ else
 endif
 
 config.gypi: configure
-	if [ -f $@ ]; then
-		$(error Stale $@, please re-run ./configure)
-	else
-		$(error No $@, please run ./configure first)
-	fi
+	$(PYTHON) ./configure
 
 install: all
-	$(PYTHON) tools/install.py $@ '$(DESTDIR)' '$(PREFIX)'
+	$(PYTHON) tools/install.py $@ $(DESTDIR)
 
 uninstall:
-	$(PYTHON) tools/install.py $@ '$(DESTDIR)' '$(PREFIX)'
+	$(PYTHON) tools/install.py $@ $(DESTDIR)
 
 clean:
 	-rm -rf out/Makefile node node_g out/$(BUILDTYPE)/node blog.html email.md
@@ -86,7 +75,6 @@ distclean:
 test: all
 	$(PYTHON) tools/test.py --mode=release simple message
 	$(MAKE) jslint
-	$(MAKE) cpplint
 
 test-http1: all
 	$(PYTHON) tools/test.py --mode=release --use-http1 simple message
@@ -141,36 +129,15 @@ apidoc_sources = $(wildcard doc/api/*.markdown)
 apidocs = $(addprefix out/,$(apidoc_sources:.markdown=.html)) \
           $(addprefix out/,$(apidoc_sources:.markdown=.json))
 
-apidoc_dirs = out/doc out/doc/api/ out/doc/api/assets out/doc/about out/doc/community out/doc/download out/doc/logos out/doc/images
+apidoc_dirs = out/doc out/doc/api/ out/doc/api/assets
 
 apiassets = $(subst api_assets,api/assets,$(addprefix out/,$(wildcard doc/api_assets/*)))
 
-doc_images = $(addprefix out/,$(wildcard doc/images/* doc/*.jpg doc/*.png))
-
 website_files = \
-	out/doc/index.html    \
-	out/doc/v0.4_announcement.html   \
-	out/doc/cla.html      \
 	out/doc/sh_main.js    \
-	out/doc/sh_javascript.min.js \
-	out/doc/sh_vim-dark.css \
-	out/doc/sh.css \
-	out/doc/favicon.ico   \
-	out/doc/pipe.css \
-	out/doc/about/index.html \
-	out/doc/community/index.html \
-	out/doc/download/index.html \
-	out/doc/logos/index.html \
-	out/doc/changelog.html \
-	$(doc_images)
+	out/doc/sh_javascript.min.js
 
-doc: $(apidoc_dirs) $(website_files) $(apiassets) $(apidocs) tools/doc/ blog node
-
-blogclean:
-	rm -rf out/blog
-
-blog: doc/blog out/Release/node tools/blog
-	out/Release/node tools/blog/generate.js doc/blog/ out/blog/ doc/blog.html doc/rss.xml
+doc: $(apidoc_dirs) $(website_files) $(apiassets) $(apidocs) tools/doc/ out/doc/changelog.html node
 
 $(apidoc_dirs):
 	mkdir -p $@
@@ -180,9 +147,6 @@ out/doc/api/assets/%: doc/api_assets/% out/doc/api/assets/
 
 out/doc/changelog.html: ChangeLog doc/changelog-head.html doc/changelog-foot.html tools/build-changelog.sh node
 	bash tools/build-changelog.sh
-
-out/doc/%.html: doc/%.html node
-	cat $< | sed -e 's|__VERSION__|'$(VERSION)'|g' > $@
 
 out/doc/%: doc/%
 	cp -r $< $@
@@ -199,9 +163,6 @@ email.md: ChangeLog tools/email-footer.md
 
 blog.html: email.md
 	cat $< | ./node tools/doc/node_modules/.bin/marked > $@
-
-blog-upload: blog
-	rsync -r out/blog/ node@nodejs.org:~/web/nodejs.org/blog/
 
 website-upload: doc
 	rsync -r out/doc/ node@nodejs.org:~/web/nodejs.org/
@@ -399,19 +360,8 @@ jslintfix:
 jslint:
 	PYTHONPATH=tools/closure_linter/ $(PYTHON) tools/closure_linter/closure_linter/gjslint.py --unix_mode --strict --nojsdoc -r lib/ -r src/ --exclude_files lib/punycode.js
 
-CPPLINT_EXCLUDE ?=
-CPPLINT_EXCLUDE += src/node_dtrace.cc
-CPPLINT_EXCLUDE += src/node_dtrace.cc
-CPPLINT_EXCLUDE += src/node_root_certs.h
-CPPLINT_EXCLUDE += src/node_win32_perfctr_provider.cc
-CPPLINT_EXCLUDE += src/queue.h
-CPPLINT_EXCLUDE += src/tree.h
-CPPLINT_EXCLUDE += src/v8abbr.h
-
-CPPLINT_FILES = $(filter-out $(CPPLINT_EXCLUDE), $(wildcard src/*.cc src/*.h src/*.c))
-
 cpplint:
-	@$(PYTHON) tools/cpplint.py $(CPPLINT_FILES)
+	@$(PYTHON) tools/cpplint.py $(wildcard src/*.cc src/*.h src/*.c)
 
 lint: jslint cpplint
 

@@ -25,12 +25,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --noconcurrent-recompilation
-
-if (%IsConcurrentRecompilationSupported()) {
-  print("Concurrent recompilation is turned on after all. Skipping this test.");
-  quit();
-}
+// Flags: --allow-natives-syntax
+%SetFlags("--noparallel-recompilation");
 
 /**
  * This class shows how to use %GetOptimizationCount() and

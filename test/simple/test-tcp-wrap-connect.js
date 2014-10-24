@@ -26,20 +26,14 @@ var TCP = process.binding('tcp_wrap').TCP;
 function makeConnection() {
   var client = new TCP();
 
-  var req = {};
-  var err = client.connect(req, '127.0.0.1', common.PORT);
-  assert.equal(err, 0);
-
+  var req = client.connect('127.0.0.1', common.PORT);
   req.oncomplete = function(status, client_, req_) {
     assert.equal(0, status);
     assert.equal(client, client_);
     assert.equal(req, req_);
 
     console.log('connected');
-    var shutdownReq = {};
-    var err = client.shutdown(shutdownReq);
-    assert.equal(err, 0);
-
+    var shutdownReq = client.shutdown();
     shutdownReq.oncomplete = function(status, client_, req_) {
       console.log('shutdown complete');
       assert.equal(0, status);

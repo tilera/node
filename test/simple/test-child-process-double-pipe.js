@@ -23,7 +23,6 @@ var is_windows = process.platform === 'win32';
 
 var common = require('../common');
 var assert = require('assert'),
-    os = require('os'),
     util = require('util'),
     spawn = require('child_process').spawn;
 
@@ -114,5 +113,5 @@ sed.stdout.on('data', function(data) {
 });
 
 sed.stdout.on('end', function(code) {
-  assert.equal(result, 'hellO' + os.EOL + 'nOde' + os.EOL  +'wOrld' + os.EOL);
+  assert.equal(result, 'hellO\nnOde\nwOrld\n');
 });

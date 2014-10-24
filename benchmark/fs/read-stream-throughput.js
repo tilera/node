@@ -1,4 +1,4 @@
-// test the throughput of the fs.WriteStream class.
+// test the througput of the fs.WriteStream class.
 
 var path = require('path');
 var common = require('../common.js');
@@ -38,7 +38,7 @@ function main(conf) {
 function runTest() {
   assert(fs.statSync(filename).size === filesize);
   var rs = fs.createReadStream(filename, {
-    highWaterMark: size,
+    bufferSize: size,
     encoding: encoding
   });
 

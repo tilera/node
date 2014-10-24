@@ -71,7 +71,8 @@ class RegExpImpl {
   // Returns false if compilation fails.
   static Handle<Object> Compile(Handle<JSRegExp> re,
                                 Handle<String> pattern,
-                                Handle<String> flags);
+                                Handle<String> flags,
+                                Zone* zone);
 
   // See ECMA-262 section 15.10.6.2.
   // This function calls the garbage collector if necessary.
@@ -426,41 +427,20 @@ FOR_EACH_REG_EXP_TREE_TYPE(FORWARD_DECLARE)
 #undef FORWARD_DECLARE
 
 
-class TextElement V8_FINAL BASE_EMBEDDED {
+class TextElement {
  public:
-  enum TextType {
-    ATOM,
-    CHAR_CLASS
-  };
-
+  enum Type {UNINITIALIZED, ATOM, CHAR_CLASS};
+  TextElement() : type(UNINITIALIZED) { }
+  explicit TextElement(Type t) : type(t), cp_offset(-1) { }
   static TextElement Atom(RegExpAtom* atom);
   static TextElement CharClass(RegExpCharacterClass* char_class);
-
-  int cp_offset() const { return cp_offset_; }
-  void set_cp_offset(int cp_offset) { cp_offset_ = cp_offset; }
-  int length() const;
-
-  TextType text_type() const { return text_type_; }
-
-  RegExpTree* tree() const { return tree_; }
-
-  RegExpAtom* atom() const {
-    ASSERT(text_type() == ATOM);
-    return reinterpret_cast<RegExpAtom*>(tree());
-  }
-
-  RegExpCharacterClass* char_class() const {
-    ASSERT(text_type() == CHAR_CLASS);
-    return reinterpret_cast<RegExpCharacterClass*>(tree());
-  }
-
- private:
-  TextElement(TextType text_type, RegExpTree* tree)
-      : cp_offset_(-1), text_type_(text_type), tree_(tree) {}
-
-  int cp_offset_;
-  TextType text_type_;
-  RegExpTree* tree_;
+  int length();
+  Type type;
+  union {
+    RegExpAtom* u_atom;
+    RegExpCharacterClass* u_char_class;
+  } data;
+  int cp_offset;
 };
 
 
@@ -759,7 +739,7 @@ class SeqRegExpNode: public RegExpNode {
 
 class ActionNode: public SeqRegExpNode {
  public:
-  enum ActionType {
+  enum Type {
     SET_REGISTER,
     INCREMENT_REGISTER,
     STORE_POSITION,
@@ -800,7 +780,7 @@ class ActionNode: public SeqRegExpNode {
                             int budget,
                             BoyerMooreLookahead* bm,
                             bool not_at_start);
-  ActionType action_type() { return action_type_; }
+  Type type() { return type_; }
   // TODO(erikcorry): We should allow some action nodes in greedy loops.
   virtual int GreedyLoopTextLength() { return kNodeIsTooComplexForGreedyLoops; }
 
@@ -833,10 +813,10 @@ class ActionNode: public SeqRegExpNode {
       int range_to;
     } u_clear_captures;
   } data_;
-  ActionNode(ActionType action_type, RegExpNode* on_success)
+  ActionNode(Type type, RegExpNode* on_success)
       : SeqRegExpNode(on_success),
-        action_type_(action_type) { }
-  ActionType action_type_;
+        type_(type) { }
+  Type type_;
   friend class DotPrinter;
 };
 
@@ -896,7 +876,7 @@ class TextNode: public SeqRegExpNode {
 
 class AssertionNode: public SeqRegExpNode {
  public:
-  enum AssertionType {
+  enum AssertionNodeType {
     AT_END,
     AT_START,
     AT_BOUNDARY,
@@ -929,7 +909,8 @@ class AssertionNode: public SeqRegExpNode {
                             int budget,
                             BoyerMooreLookahead* bm,
                             bool not_at_start);
-  AssertionType assertion_type() { return assertion_type_; }
+  AssertionNodeType type() { return type_; }
+  void set_type(AssertionNodeType type) { type_ = type; }
 
  private:
   void EmitBoundaryCheck(RegExpCompiler* compiler, Trace* trace);
@@ -937,9 +918,9 @@ class AssertionNode: public SeqRegExpNode {
   void BacktrackIfPrevious(RegExpCompiler* compiler,
                            Trace* trace,
                            IfPrevious backtrack_if_previous);
-  AssertionNode(AssertionType t, RegExpNode* on_success)
-      : SeqRegExpNode(on_success), assertion_type_(t) { }
-  AssertionType assertion_type_;
+  AssertionNode(AssertionNodeType t, RegExpNode* on_success)
+      : SeqRegExpNode(on_success), type_(t) { }
+  AssertionNodeType type_;
 };
 
 
@@ -1351,19 +1332,19 @@ class Trace {
   // A value for a property that is either known to be true, know to be false,
   // or not known.
   enum TriBool {
-    UNKNOWN = -1, FALSE_VALUE = 0, TRUE_VALUE = 1
+    UNKNOWN = -1, FALSE = 0, TRUE = 1
   };
 
   class DeferredAction {
    public:
-    DeferredAction(ActionNode::ActionType action_type, int reg)
-        : action_type_(action_type), reg_(reg), next_(NULL) { }
+    DeferredAction(ActionNode::Type type, int reg)
+        : type_(type), reg_(reg), next_(NULL) { }
     DeferredAction* next() { return next_; }
     bool Mentions(int reg);
     int reg() { return reg_; }
-    ActionNode::ActionType action_type() { return action_type_; }
+    ActionNode::Type type() { return type_; }
    private:
-    ActionNode::ActionType action_type_;
+    ActionNode::Type type_;
     int reg_;
     DeferredAction* next_;
     friend class Trace;
@@ -1447,9 +1428,7 @@ class Trace {
            at_start_ == UNKNOWN;
   }
   TriBool at_start() { return at_start_; }
-  void set_at_start(bool at_start) {
-    at_start_ = at_start ? TRUE_VALUE : FALSE_VALUE;
-  }
+  void set_at_start(bool at_start) { at_start_ = at_start ? TRUE : FALSE; }
   Label* backtrack() { return backtrack_; }
   Label* loop_label() { return loop_label_; }
   RegExpNode* stop_node() { return stop_node_; }
@@ -1615,9 +1594,9 @@ struct RegExpCompileData {
 class RegExpEngine: public AllStatic {
  public:
   struct CompilationResult {
-    CompilationResult(Isolate* isolate, const char* error_message)
+    explicit CompilationResult(const char* error_message)
         : error_message(error_message),
-          code(isolate->heap()->the_hole_value()),
+          code(HEAP->the_hole_value()),
           num_registers(0) {}
     CompilationResult(Object* code, int registers)
       : error_message(NULL),

@@ -22,7 +22,6 @@
 
 #include "node.h"
 #include "node_version.h"
-#include "node_extensions.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -34,7 +33,7 @@
 #define NODE_EXT_LIST_ITEM NODE_MODULE_DECL
 #define NODE_EXT_LIST_END
 
-NODE_EXT_LIST(NODE_EXT_LIST_START, NODE_EXT_LIST_ITEM, NODE_EXT_LIST_END)
+#include "node_extensions.h"
 
 #undef NODE_EXT_LIST_START
 #undef NODE_EXT_LIST_ITEM
@@ -45,11 +44,12 @@ NODE_EXT_LIST(NODE_EXT_LIST_START, NODE_EXT_LIST_ITEM, NODE_EXT_LIST_END)
 #define NODE_EXT_LIST_ITEM NODE_EXT_STRING
 #define NODE_EXT_LIST_END NULL};
 
-NODE_EXT_LIST(NODE_EXT_LIST_START, NODE_EXT_LIST_ITEM, NODE_EXT_LIST_END)
+#include "node_extensions.h"
 
 namespace node {
 
-node_module_struct* get_builtin_module(const char *name) {
+node_module_struct* get_builtin_module(const char *name)
+{
   char buf[128];
   node_module_struct *cur = NULL;
   snprintf(buf, sizeof(buf), "node_%s", name);
@@ -65,4 +65,4 @@ node_module_struct* get_builtin_module(const char *name) {
   return NULL;
 }
 
-}  // namespace node
+}; // namespace node

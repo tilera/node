@@ -39,6 +39,7 @@ using namespace ::v8::internal;
 
 
 TEST(VirtualMemory) {
+  OS::SetUp();
   VirtualMemory* vm = new VirtualMemory(1 * MB);
   CHECK(vm->IsReserved());
   void* block_addr = vm->address();
@@ -53,6 +54,7 @@ TEST(VirtualMemory) {
 
 
 TEST(GetCurrentProcessId) {
+  OS::SetUp();
   CHECK_EQ(static_cast<int>(::GetCurrentProcessId()),
            OS::GetCurrentProcessId());
 }

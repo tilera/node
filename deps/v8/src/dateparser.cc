@@ -112,7 +112,6 @@ bool DateParser::TimeComposer::Write(FixedArray* output) {
   return true;
 }
 
-
 bool DateParser::TimeZoneComposer::Write(FixedArray* output) {
   if (sign_ != kNone) {
     if (hour_ == kNone) hour_ = 0;

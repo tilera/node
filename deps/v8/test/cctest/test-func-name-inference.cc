@@ -25,7 +25,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
 #include "v8.h"
 
 #include "api.h"
@@ -51,9 +50,6 @@ using ::v8::internal::String;
 static void CheckFunctionName(v8::Handle<v8::Script> script,
                               const char* func_pos_src,
                               const char* ref_inferred_name) {
-  Isolate* isolate = CcTest::i_isolate();
-  Factory* factory = isolate->factory();
-
   // Get script source.
   Handle<Object> obj = v8::Utils::OpenHandle(*script);
   Handle<SharedFunctionInfo> shared_function;
@@ -70,8 +66,8 @@ static void CheckFunctionName(v8::Handle<v8::Script> script,
 
   // Find the position of a given func source substring in the source.
   Handle<String> func_pos_str =
-      factory->NewStringFromAscii(CStrVector(func_pos_src));
-  int func_pos = Runtime::StringMatch(isolate,
+      FACTORY->NewStringFromAscii(CStrVector(func_pos_src));
+  int func_pos = Runtime::StringMatch(Isolate::Current(),
                                       script_src,
                                       func_pos_str,
                                       0);
@@ -79,10 +75,11 @@ static void CheckFunctionName(v8::Handle<v8::Script> script,
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
   // Obtain SharedFunctionInfo for the function.
-  isolate->debug()->PrepareForBreakPoints();
+  Isolate::Current()->debug()->PrepareForBreakPoints();
   Object* shared_func_info_ptr =
-      isolate->debug()->FindSharedFunctionInfoInScript(i_script, func_pos);
-  CHECK(shared_func_info_ptr != CcTest::heap()->undefined_value());
+      Isolate::Current()->debug()->FindSharedFunctionInfoInScript(i_script,
+                                                                  func_pos);
+  CHECK(shared_func_info_ptr != HEAP->undefined_value());
   Handle<SharedFunctionInfo> shared_func_info(
       SharedFunctionInfo::cast(shared_func_info_ptr));
 
@@ -257,57 +254,6 @@ TEST(MultipleFuncsInLiteral) {
       "               function() { return 2; } }");
   CheckFunctionName(script, "return 1", "MyClass.method1");
   CheckFunctionName(script, "return 2", "MyClass.method1");
-}
-
-
-TEST(AnonymousInAnonymousClosure1) {
-  CcTest::InitializeVM();
-  v8::HandleScope scope(CcTest::isolate());
-
-  v8::Handle<v8::Script> script = Compile(
-      "(function() {\n"
-      "  (function() {\n"
-      "      var a = 1;\n"
-      "      return;\n"
-      "  })();\n"
-      "  var b = function() {\n"
-      "      var c = 1;\n"
-      "      return;\n"
-      "  };\n"
-      "})();");
-  CheckFunctionName(script, "return", "");
-}
-
-
-TEST(AnonymousInAnonymousClosure2) {
-  CcTest::InitializeVM();
-  v8::HandleScope scope(CcTest::isolate());
-
-  v8::Handle<v8::Script> script = Compile(
-      "(function() {\n"
-      "  (function() {\n"
-      "      var a = 1;\n"
-      "      return;\n"
-      "  })();\n"
-      "  var c = 1;\n"
-      "})();");
-  CheckFunctionName(script, "return", "");
-}
-
-
-TEST(NamedInAnonymousClosure) {
-  CcTest::InitializeVM();
-  v8::HandleScope scope(CcTest::isolate());
-
-  v8::Handle<v8::Script> script = Compile(
-      "var foo = function() {\n"
-      "  (function named() {\n"
-      "      var a = 1;\n"
-      "  })();\n"
-      "  var c = 1;\n"
-      "  return;\n"
-      "};");
-  CheckFunctionName(script, "return", "foo");
 }
 
 

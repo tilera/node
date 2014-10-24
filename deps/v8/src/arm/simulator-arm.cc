@@ -30,7 +30,7 @@
 #include <cstdarg>
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
 #include "disasm.h"
 #include "assembler.h"
@@ -830,10 +830,7 @@ class Redirection {
     Isolate* isolate = Isolate::Current();
     Redirection* current = isolate->simulator_redirection();
     for (; current != NULL; current = current->next_) {
-      if (current->external_function_ == external_function) {
-        ASSERT_EQ(current->type(), type);
-        return current;
-      }
+      if (current->external_function_ == external_function) return current;
     }
     return new Redirection(external_function, type);
   }
@@ -912,64 +909,10 @@ double Simulator::get_double_from_register_pair(int reg) {
 }
 
 
-void Simulator::set_register_pair_from_double(int reg, double* value) {
-  ASSERT((reg >= 0) && (reg < num_registers) && ((reg % 2) == 0));
-  memcpy(registers_ + reg, value, sizeof(*value));
-}
-
-
 void Simulator::set_dw_register(int dreg, const int* dbl) {
   ASSERT((dreg >= 0) && (dreg < num_d_registers));
   registers_[dreg] = dbl[0];
   registers_[dreg + 1] = dbl[1];
-}
-
-
-void Simulator::get_d_register(int dreg, uint64_t* value) {
-  ASSERT((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
-  memcpy(value, vfp_registers_ + dreg * 2, sizeof(*value));
-}
-
-
-void Simulator::set_d_register(int dreg, const uint64_t* value) {
-  ASSERT((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
-  memcpy(vfp_registers_ + dreg * 2, value, sizeof(*value));
-}
-
-
-void Simulator::get_d_register(int dreg, uint32_t* value) {
-  ASSERT((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
-  memcpy(value, vfp_registers_ + dreg * 2, sizeof(*value) * 2);
-}
-
-
-void Simulator::set_d_register(int dreg, const uint32_t* value) {
-  ASSERT((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
-  memcpy(vfp_registers_ + dreg * 2, value, sizeof(*value) * 2);
-}
-
-
-void Simulator::get_q_register(int qreg, uint64_t* value) {
-  ASSERT((qreg >= 0) && (qreg < num_q_registers));
-  memcpy(value, vfp_registers_ + qreg * 4, sizeof(*value) * 2);
-}
-
-
-void Simulator::set_q_register(int qreg, const uint64_t* value) {
-  ASSERT((qreg >= 0) && (qreg < num_q_registers));
-  memcpy(vfp_registers_ + qreg * 4, value, sizeof(*value) * 2);
-}
-
-
-void Simulator::get_q_register(int qreg, uint32_t* value) {
-  ASSERT((qreg >= 0) && (qreg < num_q_registers));
-  memcpy(value, vfp_registers_ + qreg * 4, sizeof(*value) * 4);
-}
-
-
-void Simulator::set_q_register(int qreg, const uint32_t* value) {
-  ASSERT((qreg >= 0) && (qreg < num_q_registers));
-  memcpy(vfp_registers_ + qreg * 4, value, sizeof(*value) * 4);
 }
 
 
@@ -1032,22 +975,27 @@ ReturnType Simulator::GetFromVFPRegister(int reg_index) {
 }
 
 
-// Runtime FP routines take:
-// - two double arguments
-// - one double argument and zero or one integer arguments.
-// All are consructed here from r0-r3 or d0, d1 and r0.
+// Runtime FP routines take up to two double arguments and zero
+// or one integer arguments. All are consructed here.
+// from r0-r3 or d0 and d1.
 void Simulator::GetFpArgs(double* x, double* y, int32_t* z) {
   if (use_eabi_hardfloat()) {
-    *x = get_double_from_d_register(0);
-    *y = get_double_from_d_register(1);
-    *z = get_register(0);
+    *x = vfp_registers_[0];
+    *y = vfp_registers_[1];
+    *z = registers_[1];
   } else {
+    // We use a char buffer to get around the strict-aliasing rules which
+    // otherwise allow the compiler to optimize away the copy.
+    char buffer[sizeof(*x)];
     // Registers 0 and 1 -> x.
-    *x = get_double_from_register_pair(0);
+    OS::MemCopy(buffer, registers_, sizeof(*x));
+    OS::MemCopy(x, buffer, sizeof(*x));
     // Register 2 and 3 -> y.
-    *y = get_double_from_register_pair(2);
+    OS::MemCopy(buffer, registers_ + 2, sizeof(*y));
+    OS::MemCopy(y, buffer, sizeof(*y));
     // Register 2 -> z
-    *z = get_register(2);
+    memcpy(buffer, registers_ + 2, sizeof(*z));
+    memcpy(z, buffer, sizeof(*z));
   }
 }
 
@@ -1074,7 +1022,6 @@ void Simulator::TrashCallerSaveRegisters() {
   registers_[3] = 0x50Bad4U;
   registers_[12] = 0x50Bad4U;
 }
-
 
 // Some Operating Systems allow unaligned access on ARMv7 targets. We
 // assume that unaligned accesses are not allowed unless the v8 build system
@@ -1535,11 +1482,11 @@ static int count_bits(int bit_vector) {
 }
 
 
-int32_t Simulator::ProcessPU(Instruction* instr,
-                             int num_regs,
-                             int reg_size,
-                             intptr_t* start_address,
-                             intptr_t* end_address) {
+void Simulator::ProcessPUW(Instruction* instr,
+                           int num_regs,
+                           int reg_size,
+                           intptr_t* start_address,
+                           intptr_t* end_address) {
   int rn = instr->RnValue();
   int32_t rn_val = get_register(rn);
   switch (instr->PUField()) {
@@ -1570,9 +1517,10 @@ int32_t Simulator::ProcessPU(Instruction* instr,
       break;
     }
   }
-  return rn_val;
+  if (instr->HasW()) {
+    set_register(rn, rn_val);
+  }
 }
-
 
 // Addressing Mode 4 - Load and Store Multiple
 void Simulator::HandleRList(Instruction* instr, bool load) {
@@ -1581,8 +1529,7 @@ void Simulator::HandleRList(Instruction* instr, bool load) {
 
   intptr_t start_address = 0;
   intptr_t end_address = 0;
-  int32_t rn_val =
-      ProcessPU(instr, num_regs, kPointerSize, &start_address, &end_address);
+  ProcessPUW(instr, num_regs, kPointerSize, &start_address, &end_address);
 
   intptr_t* address = reinterpret_cast<intptr_t*>(start_address);
   // Catch null pointers a little earlier.
@@ -1601,9 +1548,6 @@ void Simulator::HandleRList(Instruction* instr, bool load) {
     rlist >>= 1;
   }
   ASSERT(end_address == ((intptr_t)address) - 4);
-  if (instr->HasW()) {
-    set_register(instr->RnValue(), rn_val);
-  }
 }
 
 
@@ -1626,8 +1570,7 @@ void Simulator::HandleVList(Instruction* instr) {
 
   intptr_t start_address = 0;
   intptr_t end_address = 0;
-  int32_t rn_val =
-      ProcessPU(instr, num_regs, operand_size, &start_address, &end_address);
+  ProcessPUW(instr, num_regs, operand_size, &start_address, &end_address);
 
   intptr_t* address = reinterpret_cast<intptr_t*>(start_address);
   for (int reg = vd; reg < vd + num_regs; reg++) {
@@ -1660,9 +1603,6 @@ void Simulator::HandleVList(Instruction* instr) {
     }
   }
   ASSERT(reinterpret_cast<intptr_t>(address) - operand_size == end_address);
-  if (instr->HasW()) {
-    set_register(instr->RnValue(), rn_val);
-  }
 }
 
 
@@ -1687,13 +1627,14 @@ typedef double (*SimulatorRuntimeFPIntCall)(double darg0, int32_t arg0);
 
 // This signature supports direct call in to API function native callback
 // (refer to InvocationCallback in v8.h).
-typedef void (*SimulatorRuntimeDirectApiCall)(int32_t arg0);
-typedef void (*SimulatorRuntimeProfilingApiCall)(int32_t arg0, int32_t arg1);
+typedef v8::Handle<v8::Value> (*SimulatorRuntimeDirectApiCall)(int32_t arg0);
+typedef void (*SimulatorRuntimeDirectApiCallNew)(int32_t arg0);
 
 // This signature supports direct call to accessor getter callback.
-typedef void (*SimulatorRuntimeDirectGetterCall)(int32_t arg0, int32_t arg1);
-typedef void (*SimulatorRuntimeProfilingGetterCall)(
-    int32_t arg0, int32_t arg1, int32_t arg2);
+typedef v8::Handle<v8::Value> (*SimulatorRuntimeDirectGetterCall)(int32_t arg0,
+                                                                  int32_t arg1);
+typedef void (*SimulatorRuntimeDirectGetterCallNew)(int32_t arg0,
+                                                    int32_t arg1);
 
 // Software interrupt instructions are used by the simulator to call into the
 // C-based V8 runtime.
@@ -1719,6 +1660,32 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
          (redirection->type() == ExternalReference::BUILTIN_COMPARE_CALL) ||
          (redirection->type() == ExternalReference::BUILTIN_FP_CALL) ||
          (redirection->type() == ExternalReference::BUILTIN_FP_INT_CALL);
+      if (use_eabi_hardfloat()) {
+        // With the hard floating point calling convention, double
+        // arguments are passed in VFP registers. Fetch the arguments
+        // from there and call the builtin using soft floating point
+        // convention.
+        switch (redirection->type()) {
+        case ExternalReference::BUILTIN_FP_FP_CALL:
+        case ExternalReference::BUILTIN_COMPARE_CALL:
+          arg0 = vfp_registers_[0];
+          arg1 = vfp_registers_[1];
+          arg2 = vfp_registers_[2];
+          arg3 = vfp_registers_[3];
+          break;
+        case ExternalReference::BUILTIN_FP_CALL:
+          arg0 = vfp_registers_[0];
+          arg1 = vfp_registers_[1];
+          break;
+        case ExternalReference::BUILTIN_FP_INT_CALL:
+          arg0 = vfp_registers_[0];
+          arg1 = vfp_registers_[1];
+          arg2 = get_register(0);
+          break;
+        default:
+          break;
+        }
+      }
       // This is dodgy but it works because the C entry stubs are never moved.
       // See comment in codegen-arm.cc and bug 1242173.
       int32_t saved_lr = get_register(lr);
@@ -1806,7 +1773,9 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
             break;
           }
         }
-      } else if (redirection->type() == ExternalReference::DIRECT_API_CALL) {
+      } else if (
+          redirection->type() == ExternalReference::DIRECT_API_CALL ||
+          redirection->type() == ExternalReference::DIRECT_API_CALL_NEW) {
         if (::v8::internal::FLAG_trace_sim || !stack_aligned) {
           PrintF("Call to host function at %p args %08x",
               reinterpret_cast<void*>(external), arg0);
@@ -1816,11 +1785,22 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
           PrintF("\n");
         }
         CHECK(stack_aligned);
-        SimulatorRuntimeDirectApiCall target =
-            reinterpret_cast<SimulatorRuntimeDirectApiCall>(external);
-        target(arg0);
+        if (redirection->type() == ExternalReference::DIRECT_API_CALL) {
+          SimulatorRuntimeDirectApiCall target =
+              reinterpret_cast<SimulatorRuntimeDirectApiCall>(external);
+          v8::Handle<v8::Value> result = target(arg0);
+          if (::v8::internal::FLAG_trace_sim) {
+            PrintF("Returned %p\n", reinterpret_cast<void *>(*result));
+          }
+          set_register(r0, reinterpret_cast<int32_t>(*result));
+        } else {
+          SimulatorRuntimeDirectApiCallNew target =
+              reinterpret_cast<SimulatorRuntimeDirectApiCallNew>(external);
+          target(arg0);
+        }
       } else if (
-          redirection->type() == ExternalReference::PROFILING_API_CALL) {
+          redirection->type() == ExternalReference::DIRECT_GETTER_CALL ||
+          redirection->type() == ExternalReference::DIRECT_GETTER_CALL_NEW) {
         if (::v8::internal::FLAG_trace_sim || !stack_aligned) {
           PrintF("Call to host function at %p args %08x %08x",
               reinterpret_cast<void*>(external), arg0, arg1);
@@ -1830,38 +1810,19 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
           PrintF("\n");
         }
         CHECK(stack_aligned);
-        SimulatorRuntimeProfilingApiCall target =
-            reinterpret_cast<SimulatorRuntimeProfilingApiCall>(external);
-        target(arg0, arg1);
-      } else if (
-          redirection->type() == ExternalReference::DIRECT_GETTER_CALL) {
-        if (::v8::internal::FLAG_trace_sim || !stack_aligned) {
-          PrintF("Call to host function at %p args %08x %08x",
-              reinterpret_cast<void*>(external), arg0, arg1);
-          if (!stack_aligned) {
-            PrintF(" with unaligned stack %08x\n", get_register(sp));
+        if (redirection->type() == ExternalReference::DIRECT_GETTER_CALL) {
+          SimulatorRuntimeDirectGetterCall target =
+              reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
+          v8::Handle<v8::Value> result = target(arg0, arg1);
+          if (::v8::internal::FLAG_trace_sim) {
+            PrintF("Returned %p\n", reinterpret_cast<void *>(*result));
           }
-          PrintF("\n");
+          set_register(r0, reinterpret_cast<int32_t>(*result));
+        } else {
+          SimulatorRuntimeDirectGetterCallNew target =
+              reinterpret_cast<SimulatorRuntimeDirectGetterCallNew>(external);
+          target(arg0, arg1);
         }
-        CHECK(stack_aligned);
-        SimulatorRuntimeDirectGetterCall target =
-            reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
-        target(arg0, arg1);
-      } else if (
-          redirection->type() == ExternalReference::PROFILING_GETTER_CALL) {
-        if (::v8::internal::FLAG_trace_sim || !stack_aligned) {
-          PrintF("Call to host function at %p args %08x %08x %08x",
-              reinterpret_cast<void*>(external), arg0, arg1, arg2);
-          if (!stack_aligned) {
-            PrintF(" with unaligned stack %08x\n", get_register(sp));
-          }
-          PrintF("\n");
-        }
-        CHECK(stack_aligned);
-        SimulatorRuntimeProfilingGetterCall target =
-            reinterpret_cast<SimulatorRuntimeProfilingGetterCall>(
-                external);
-        target(arg0, arg1, arg2);
       } else {
         // builtin call.
         ASSERT(redirection->type() == ExternalReference::BUILTIN_CALL);
@@ -1869,7 +1830,7 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
             reinterpret_cast<SimulatorRuntimeCall>(external);
         if (::v8::internal::FLAG_trace_sim || !stack_aligned) {
           PrintF(
-              "Call to host function at %p "
+              "Call to host function at %p"
               "args %08x, %08x, %08x, %08x, %08x, %08x",
               FUNCTION_ADDR(target),
               arg0,
@@ -1931,7 +1892,6 @@ double Simulator::canonicalizeNaN(double value) {
   return (FPSCR_default_NaN_mode_ && std::isnan(value)) ?
     FixedDoubleArray::canonical_not_the_hole_nan_as_double() : value;
 }
-
 
 // Stop helper functions.
 bool Simulator::isStopInstruction(Instruction* instr) {
@@ -2575,148 +2535,36 @@ void Simulator::DecodeType3(Instruction* instr) {
       break;
     }
     case ia_x: {
-      if (instr->Bit(4) == 0) {
-        // Memop.
-      } else {
-        if (instr->Bit(5) == 0) {
-          switch (instr->Bits(22, 21)) {
-            case 0:
-              if (instr->Bit(20) == 0) {
-                if (instr->Bit(6) == 0) {
-                  // Pkhbt.
-                  uint32_t rn_val = get_register(rn);
-                  uint32_t rm_val = get_register(instr->RmValue());
-                  int32_t shift = instr->Bits(11, 7);
-                  rm_val <<= shift;
-                  set_register(rd, (rn_val & 0xFFFF) | (rm_val & 0xFFFF0000U));
-                } else {
-                  // Pkhtb.
-                  uint32_t rn_val = get_register(rn);
-                  int32_t rm_val = get_register(instr->RmValue());
-                  int32_t shift = instr->Bits(11, 7);
-                  if (shift == 0) {
-                    shift = 32;
-                  }
-                  rm_val >>= shift;
-                  set_register(rd, (rn_val & 0xFFFF0000U) | (rm_val & 0xFFFF));
-                }
-              } else {
-                UNIMPLEMENTED();
-              }
-              break;
-            case 1:
-              UNIMPLEMENTED();
-              break;
-            case 2:
-              UNIMPLEMENTED();
-              break;
-            case 3: {
-              // Usat.
-              int32_t sat_pos = instr->Bits(20, 16);
-              int32_t sat_val = (1 << sat_pos) - 1;
-              int32_t shift = instr->Bits(11, 7);
-              int32_t shift_type = instr->Bit(6);
-              int32_t rm_val = get_register(instr->RmValue());
-              if (shift_type == 0) {  // LSL
-                rm_val <<= shift;
-              } else {  // ASR
-                rm_val >>= shift;
-              }
-              // If saturation occurs, the Q flag should be set in the CPSR.
-              // There is no Q flag yet, and no instruction (MRS) to read the
-              // CPSR directly.
-              if (rm_val > sat_val) {
-                rm_val = sat_val;
-              } else if (rm_val < 0) {
-                rm_val = 0;
-              }
-              set_register(rd, rm_val);
-              break;
-            }
+      if (instr->HasW()) {
+        ASSERT(instr->Bits(5, 4) == 0x1);
+
+        if (instr->Bit(22) == 0x1) {  // USAT.
+          int32_t sat_pos = instr->Bits(20, 16);
+          int32_t sat_val = (1 << sat_pos) - 1;
+          int32_t shift = instr->Bits(11, 7);
+          int32_t shift_type = instr->Bit(6);
+          int32_t rm_val = get_register(instr->RmValue());
+          if (shift_type == 0) {  // LSL
+            rm_val <<= shift;
+          } else {  // ASR
+            rm_val >>= shift;
           }
-        } else {
-          switch (instr->Bits(22, 21)) {
-            case 0:
-              UNIMPLEMENTED();
-              break;
-            case 1:
-              UNIMPLEMENTED();
-              break;
-            case 2:
-              if ((instr->Bit(20) == 0) && (instr->Bits(9, 6) == 1)) {
-                if (instr->Bits(19, 16) == 0xF) {
-                  // Uxtb16.
-                  uint32_t rm_val = get_register(instr->RmValue());
-                  int32_t rotate = instr->Bits(11, 10);
-                  switch (rotate) {
-                    case 0:
-                      break;
-                    case 1:
-                      rm_val = (rm_val >> 8) | (rm_val << 24);
-                      break;
-                    case 2:
-                      rm_val = (rm_val >> 16) | (rm_val << 16);
-                      break;
-                    case 3:
-                      rm_val = (rm_val >> 24) | (rm_val << 8);
-                      break;
-                  }
-                  set_register(rd,
-                               (rm_val & 0xFF) | (rm_val & 0xFF0000));
-                } else {
-                  UNIMPLEMENTED();
-                }
-              } else {
-                UNIMPLEMENTED();
-              }
-              break;
-            case 3:
-              if ((instr->Bit(20) == 0) && (instr->Bits(9, 6) == 1)) {
-                if (instr->Bits(19, 16) == 0xF) {
-                  // Uxtb.
-                  uint32_t rm_val = get_register(instr->RmValue());
-                  int32_t rotate = instr->Bits(11, 10);
-                  switch (rotate) {
-                    case 0:
-                      break;
-                    case 1:
-                      rm_val = (rm_val >> 8) | (rm_val << 24);
-                      break;
-                    case 2:
-                      rm_val = (rm_val >> 16) | (rm_val << 16);
-                      break;
-                    case 3:
-                      rm_val = (rm_val >> 24) | (rm_val << 8);
-                      break;
-                  }
-                  set_register(rd, (rm_val & 0xFF));
-                } else {
-                  // Uxtab.
-                  uint32_t rn_val = get_register(rn);
-                  uint32_t rm_val = get_register(instr->RmValue());
-                  int32_t rotate = instr->Bits(11, 10);
-                  switch (rotate) {
-                    case 0:
-                      break;
-                    case 1:
-                      rm_val = (rm_val >> 8) | (rm_val << 24);
-                      break;
-                    case 2:
-                      rm_val = (rm_val >> 16) | (rm_val << 16);
-                      break;
-                    case 3:
-                      rm_val = (rm_val >> 24) | (rm_val << 8);
-                      break;
-                  }
-                  set_register(rd, rn_val + (rm_val & 0xFF));
-                }
-              } else {
-                UNIMPLEMENTED();
-              }
-              break;
+          // If saturation occurs, the Q flag should be set in the CPSR.
+          // There is no Q flag yet, and no instruction (MRS) to read the
+          // CPSR directly.
+          if (rm_val > sat_val) {
+            rm_val = sat_val;
+          } else if (rm_val < 0) {
+            rm_val = 0;
           }
+          set_register(rd, rm_val);
+        } else {  // SSAT.
+          UNIMPLEMENTED();
         }
         return;
+      } else {
+        Format(instr, "'memop'cond'b 'rd, ['rn], +'shift_rm");
+        UNIMPLEMENTED();
       }
       break;
     }
@@ -3032,15 +2880,6 @@ void Simulator::DecodeTypeVFP(Instruction* instr) {
       data[instr->Bit(21)] = get_register(instr->RtValue());
       OS::MemCopy(&dd_value, data, 8);
       set_d_register_from_double(vd, dd_value);
-    } else if ((instr->VLValue() == 0x1) &&
-               (instr->VCValue() == 0x1) &&
-               (instr->Bit(23) == 0x0)) {
-      // vmov (scalar to ARM core register)
-      int vn = instr->Bits(19, 16) | (instr->Bit(7) << 4);
-      double dn_value = get_double_from_d_register(vn);
-      int32_t data[2];
-      OS::MemCopy(data, &dn_value, 8);
-      set_register(instr->RtValue(), data[instr->Bit(21)]);
     } else if ((instr->VLValue() == 0x1) &&
                (instr->VCValue() == 0x0) &&
                (instr->VAValue() == 0x7) &&
@@ -3449,156 +3288,6 @@ void Simulator::DecodeType6CoprocessorIns(Instruction* instr) {
 }
 
 
-void Simulator::DecodeSpecialCondition(Instruction* instr) {
-  switch (instr->SpecialValue()) {
-    case 5:
-      if ((instr->Bits(18, 16) == 0) && (instr->Bits(11, 6) == 0x28) &&
-          (instr->Bit(4) == 1)) {
-        // vmovl signed
-        int Vd = (instr->Bit(22) << 4) | instr->VdValue();
-        int Vm = (instr->Bit(5) << 4) | instr->VmValue();
-        int imm3 = instr->Bits(21, 19);
-        if ((imm3 != 1) && (imm3 != 2) && (imm3 != 4)) UNIMPLEMENTED();
-        int esize = 8 * imm3;
-        int elements = 64 / esize;
-        int8_t from[8];
-        get_d_register(Vm, reinterpret_cast<uint64_t*>(from));
-        int16_t to[8];
-        int e = 0;
-        while (e < elements) {
-          to[e] = from[e];
-          e++;
-        }
-        set_q_register(Vd, reinterpret_cast<uint64_t*>(to));
-      } else {
-        UNIMPLEMENTED();
-      }
-      break;
-    case 7:
-      if ((instr->Bits(18, 16) == 0) && (instr->Bits(11, 6) == 0x28) &&
-          (instr->Bit(4) == 1)) {
-        // vmovl unsigned
-        int Vd = (instr->Bit(22) << 4) | instr->VdValue();
-        int Vm = (instr->Bit(5) << 4) | instr->VmValue();
-        int imm3 = instr->Bits(21, 19);
-        if ((imm3 != 1) && (imm3 != 2) && (imm3 != 4)) UNIMPLEMENTED();
-        int esize = 8 * imm3;
-        int elements = 64 / esize;
-        uint8_t from[8];
-        get_d_register(Vm, reinterpret_cast<uint64_t*>(from));
-        uint16_t to[8];
-        int e = 0;
-        while (e < elements) {
-          to[e] = from[e];
-          e++;
-        }
-        set_q_register(Vd, reinterpret_cast<uint64_t*>(to));
-      } else {
-        UNIMPLEMENTED();
-      }
-      break;
-    case 8:
-      if (instr->Bits(21, 20) == 0) {
-        // vst1
-        int Vd = (instr->Bit(22) << 4) | instr->VdValue();
-        int Rn = instr->VnValue();
-        int type = instr->Bits(11, 8);
-        int Rm = instr->VmValue();
-        int32_t address = get_register(Rn);
-        int regs = 0;
-        switch (type) {
-          case nlt_1:
-            regs = 1;
-            break;
-          case nlt_2:
-            regs = 2;
-            break;
-          case nlt_3:
-            regs = 3;
-            break;
-          case nlt_4:
-            regs = 4;
-            break;
-          default:
-            UNIMPLEMENTED();
-            break;
-        }
-        int r = 0;
-        while (r < regs) {
-          uint32_t data[2];
-          get_d_register(Vd + r, data);
-          WriteW(address, data[0], instr);
-          WriteW(address + 4, data[1], instr);
-          address += 8;
-          r++;
-        }
-        if (Rm != 15) {
-          if (Rm == 13) {
-            set_register(Rn, address);
-          } else {
-            set_register(Rn, get_register(Rn) + get_register(Rm));
-          }
-        }
-      } else if (instr->Bits(21, 20) == 2) {
-        // vld1
-        int Vd = (instr->Bit(22) << 4) | instr->VdValue();
-        int Rn = instr->VnValue();
-        int type = instr->Bits(11, 8);
-        int Rm = instr->VmValue();
-        int32_t address = get_register(Rn);
-        int regs = 0;
-        switch (type) {
-          case nlt_1:
-            regs = 1;
-            break;
-          case nlt_2:
-            regs = 2;
-            break;
-          case nlt_3:
-            regs = 3;
-            break;
-          case nlt_4:
-            regs = 4;
-            break;
-          default:
-            UNIMPLEMENTED();
-            break;
-        }
-        int r = 0;
-        while (r < regs) {
-          uint32_t data[2];
-          data[0] = ReadW(address, instr);
-          data[1] = ReadW(address + 4, instr);
-          set_d_register(Vd + r, data);
-          address += 8;
-          r++;
-        }
-        if (Rm != 15) {
-          if (Rm == 13) {
-            set_register(Rn, address);
-          } else {
-            set_register(Rn, get_register(Rn) + get_register(Rm));
-          }
-        }
-      } else {
-        UNIMPLEMENTED();
-      }
-      break;
-    case 0xA:
-    case 0xB:
-      if ((instr->Bits(22, 20) == 5) && (instr->Bits(15, 12) == 0xf)) {
-        // pld: ignore instruction.
-      } else {
-        UNIMPLEMENTED();
-      }
-      break;
-    default:
-      UNIMPLEMENTED();
-      break;
-  }
-}
-
-
 // Executes the current instruction.
 void Simulator::InstructionDecode(Instruction* instr) {
   if (v8::internal::FLAG_check_icache) {
@@ -3615,7 +3304,7 @@ void Simulator::InstructionDecode(Instruction* instr) {
     PrintF("  0x%08x  %s\n", reinterpret_cast<intptr_t>(instr), buffer.start());
   }
   if (instr->ConditionField() == kSpecialCondition) {
-    DecodeSpecialCondition(instr);
+    UNIMPLEMENTED();
   } else if (ConditionallyExecute(instr)) {
     switch (instr->TypeValue()) {
       case 0:
@@ -3791,27 +3480,19 @@ int32_t Simulator::Call(byte* entry, int argument_count, ...) {
 }
 
 
-void Simulator::CallFP(byte* entry, double d0, double d1) {
+double Simulator::CallFP(byte* entry, double d0, double d1) {
   if (use_eabi_hardfloat()) {
     set_d_register_from_double(0, d0);
     set_d_register_from_double(1, d1);
   } else {
-    set_register_pair_from_double(0, &d0);
-    set_register_pair_from_double(2, &d1);
+    int buffer[2];
+    ASSERT(sizeof(buffer[0]) * 2 == sizeof(d0));
+    OS::MemCopy(buffer, &d0, sizeof(d0));
+    set_dw_register(0, buffer);
+    OS::MemCopy(buffer, &d1, sizeof(d1));
+    set_dw_register(2, buffer);
   }
   CallInternal(entry);
-}
-
-
-int32_t Simulator::CallFPReturnsInt(byte* entry, double d0, double d1) {
-  CallFP(entry, d0, d1);
-  int32_t result = get_register(r0);
-  return result;
-}
-
-
-double Simulator::CallFPReturnsDouble(byte* entry, double d0, double d1) {
-  CallFP(entry, d0, d1);
   if (use_eabi_hardfloat()) {
     return get_double_from_d_register(0);
   } else {

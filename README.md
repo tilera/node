@@ -1,4 +1,4 @@
-Evented I/O for V8 javascript.
+Evented I/O for V8 javascript. [![Build Status](https://secure.travis-ci.org/joyent/node.png)](http://travis-ci.org/joyent/node)
 ===
 
 ### To build:
@@ -16,15 +16,6 @@ Unix/Macintosh:
     make
     make install
 
-With libicu i18n support:
-
-    svn checkout --force --revision 214189 \
-        http://src.chromium.org/svn/trunk/deps/third_party/icu46 \
-        deps/v8/third_party/icu46
-    ./configure --with-icu-path=deps/v8/third_party/icu46/icu.gyp
-    make
-    make install
-
 If your python binary is in a non-standard location or has a
 non-standard name, run the following instead:
 
@@ -33,14 +24,9 @@ non-standard name, run the following instead:
     make
     make install
 
-Prerequisites (Windows only):
-
-    * Python 2.6 or 2.7
-    * Visual Studio 2010 or 2012
-
 Windows:
 
-    vcbuild nosign
+    vcbuild.bat
 
 You can download pre-built binaries for various operating systems from
 [http://nodejs.org/download/](http://nodejs.org/download/).  The Windows
@@ -63,7 +49,7 @@ Unix/Macintosh:
 
 Windows:
 
-    vcbuild test
+    vcbuild.bat test
 
 ### To build the documentation:
 

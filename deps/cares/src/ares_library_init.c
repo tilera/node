@@ -101,10 +101,7 @@ int ares_library_init(int flags)
   int res;
 
   if (ares_initialized)
-    {
-      ares_initialized++;
-      return ARES_SUCCESS;
-    }
+    return ARES_SUCCESS;
   ares_initialized++;
 
   if (flags & ARES_LIB_INIT_WIN32)
@@ -125,8 +122,6 @@ void ares_library_cleanup(void)
   if (!ares_initialized)
     return;
   ares_initialized--;
-  if (ares_initialized)
-    return;
 
   if (ares_init_flags & ARES_LIB_INIT_WIN32)
     ares_win32_cleanup();

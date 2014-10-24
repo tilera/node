@@ -43,33 +43,15 @@ namespace internal {
 template <bool seq_ascii>
 class JsonParser BASE_EMBEDDED {
  public:
-  static Handle<Object> Parse(Handle<String> source) {
-    return JsonParser(source).ParseJson();
+  static Handle<Object> Parse(Handle<String> source, Zone* zone) {
+    return JsonParser().ParseJson(source, zone);
   }
 
   static const int kEndOfString = -1;
 
  private:
-  explicit JsonParser(Handle<String> source)
-      : source_(source),
-        source_length_(source->length()),
-        isolate_(source->map()->GetHeap()->isolate()),
-        factory_(isolate_->factory()),
-        zone_(isolate_),
-        object_constructor_(isolate_->native_context()->object_function(),
-                            isolate_),
-        position_(-1) {
-    FlattenString(source_);
-    pretenure_ = (source_length_ >= kPretenureTreshold) ? TENURED : NOT_TENURED;
-
-    // Optimized fast case where we only have ASCII characters.
-    if (seq_ascii) {
-      seq_source_ = Handle<SeqOneByteString>::cast(source_);
-    }
-  }
-
   // Parse a string containing a single JSON value.
-  Handle<Object> ParseJson();
+  Handle<Object> ParseJson(Handle<String> source, Zone* zone);
 
   inline void Advance() {
     position_++;
@@ -124,7 +106,7 @@ class JsonParser BASE_EMBEDDED {
   bool ParseJsonString(Handle<String> expected) {
     int length = expected->length();
     if (source_->length() - position_ - 1 > length) {
-      DisallowHeapAllocation no_gc;
+      AssertNoAllocation no_gc;
       String::FlatContent content = expected->GetFlatContent();
       if (content.IsAscii()) {
         ASSERT_EQ('"', c0_);
@@ -197,14 +179,13 @@ class JsonParser BASE_EMBEDDED {
   inline Isolate* isolate() { return isolate_; }
   inline Factory* factory() { return factory_; }
   inline Handle<JSFunction> object_constructor() { return object_constructor_; }
+  inline Zone* zone() const { return zone_; }
 
   static const int kInitialSpecialStringLength = 1024;
   static const int kPretenureTreshold = 100 * 1024;
 
 
  private:
-  Zone* zone() { return &zone_; }
-
   Handle<String> source_;
   int source_length_;
   Handle<SeqOneByteString> seq_source_;
@@ -212,14 +193,32 @@ class JsonParser BASE_EMBEDDED {
   PretenureFlag pretenure_;
   Isolate* isolate_;
   Factory* factory_;
-  Zone zone_;
   Handle<JSFunction> object_constructor_;
   uc32 c0_;
   int position_;
+  Zone* zone_;
 };
 
 template <bool seq_ascii>
-Handle<Object> JsonParser<seq_ascii>::ParseJson() {
+Handle<Object> JsonParser<seq_ascii>::ParseJson(Handle<String> source,
+                                                Zone* zone) {
+  isolate_ = source->map()->GetHeap()->isolate();
+  factory_ = isolate_->factory();
+  object_constructor_ = Handle<JSFunction>(
+      isolate()->native_context()->object_function(), isolate());
+  zone_ = zone;
+  FlattenString(source);
+  source_ = source;
+  source_length_ = source_->length();
+  pretenure_ = (source_length_ >= kPretenureTreshold) ? TENURED : NOT_TENURED;
+
+  // Optimized fast case where we only have ASCII characters.
+  if (seq_ascii) {
+    seq_source_ = Handle<SeqOneByteString>::cast(source_);
+  }
+
+  // Set initial position right before the string.
+  position_ = -1;
   // Advance to the first character (possibly EOS)
   AdvanceSkipWhitespace();
   Handle<Object> result = ParseJsonValue();
@@ -265,7 +264,7 @@ Handle<Object> JsonParser<seq_ascii>::ParseJson() {
         break;
     }
 
-    MessageLocation location(factory->NewScript(source_),
+    MessageLocation location(factory->NewScript(source),
                              position_,
                              position_ + 1);
     Handle<Object> result = factory->NewSyntaxError(message, array);
@@ -324,6 +323,7 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
   Handle<JSObject> json_object =
       factory()->NewJSObject(object_constructor(), pretenure_);
   Handle<Map> map(json_object->map());
+  ZoneScope zone_scope(zone(), DELETE_ON_EXIT);
   ZoneList<Handle<Object> > properties(8, zone());
   ASSERT_EQ(c0_, '{');
 
@@ -381,23 +381,39 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
         // First check whether there is a single expected transition. If so, try
         // to parse it first.
         bool follow_expected = false;
-        Handle<Map> target;
         if (seq_ascii) {
           key = JSObject::ExpectedTransitionKey(map);
           follow_expected = !key.is_null() && ParseJsonString(key);
         }
         // If the expected transition hits, follow it.
         if (follow_expected) {
-          target = JSObject::ExpectedTransitionTarget(map);
+          map = JSObject::ExpectedTransitionTarget(map);
         } else {
           // If the expected transition failed, parse an internalized string and
           // try to find a matching transition.
           key = ParseJsonInternalizedString();
           if (key.is_null()) return ReportUnexpectedCharacter();
 
-          target = JSObject::FindTransitionToField(map, key);
+          Handle<Map> target = JSObject::FindTransitionToField(map, key);
           // If a transition was found, follow it and continue.
-          transitioning = !target.is_null();
+          if (!target.is_null()) {
+            map = target;
+          } else {
+            // If no transition was found, commit the intermediate state to the
+            // object and stop transitioning.
+            JSObject::TransitionToMap(json_object, map);
+            int length = properties.length();
+            for (int i = 0; i < length; i++) {
+              Handle<Object> value = properties[i];
+              Representation representation =
+                  map->instance_descriptors()->GetDetails(i).representation();
+              if (representation.IsDouble() && value->IsSmi()) {
+                // TODO(verwaest): Allocate heap number.
+              }
+              json_object->FastPropertyAtPut(i, *value);
+            }
+            transitioning = false;
+          }
         }
         if (c0_ != ':') return ReportUnexpectedCharacter();
 
@@ -405,35 +421,16 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
         value = ParseJsonValue();
         if (value.is_null()) return ReportUnexpectedCharacter();
 
+        properties.Add(value, zone());
         if (transitioning) {
-          int descriptor = map->NumberOfOwnDescriptors();
-          PropertyDetails details =
-              target->instance_descriptors()->GetDetails(descriptor);
-          Representation expected_representation = details.representation();
-
-          if (value->FitsRepresentation(expected_representation)) {
-            // If the target representation is double and the value is already
-            // double, use the existing box.
-            if (FLAG_track_double_fields &&
-                value->IsSmi() &&
-                expected_representation.IsDouble()) {
-              value = factory()->NewHeapNumber(
-                  Handle<Smi>::cast(value)->value());
-            }
-            properties.Add(value, zone());
-            map = target;
-            continue;
-          } else {
-            transitioning = false;
+          int field = properties.length() - 1;
+          Representation expected_representation =
+              map->instance_descriptors()->GetDetails(field).representation();
+          if (!value->FitsRepresentation(expected_representation)) {
+            map = Map::GeneralizeRepresentation(
+                map, field, value->OptimalRepresentation());
           }
-        }
-
-        // Commit the intermediate state to the object and stop transitioning.
-        JSObject::AllocateStorageForMap(json_object, map);
-        int length = properties.length();
-        for (int i = 0; i < length; i++) {
-          Handle<Object> value = properties[i];
-          json_object->FastPropertyAtPut(i, *value);
+          continue;
         }
       } else {
         key = ParseJsonInternalizedString();
@@ -453,10 +450,15 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
 
     // If we transitioned until the very end, transition the map now.
     if (transitioning) {
-      JSObject::AllocateStorageForMap(json_object, map);
+      JSObject::TransitionToMap(json_object, map);
       int length = properties.length();
       for (int i = 0; i < length; i++) {
         Handle<Object> value = properties[i];
+        Representation representation =
+            map->instance_descriptors()->GetDetails(i).representation();
+        if (representation.IsDouble() && value->IsSmi()) {
+          // TODO(verwaest): Allocate heap number.
+        }
         json_object->FastPropertyAtPut(i, *value);
       }
     }
@@ -469,6 +471,7 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
 template <bool seq_ascii>
 Handle<Object> JsonParser<seq_ascii>::ParseJsonArray() {
   HandleScope scope(isolate());
+  ZoneScope zone_scope(zone(), DELETE_ON_EXIT);
   ZoneList<Handle<Object> > elements(4, zone());
   ASSERT_EQ(c0_, '[');
 

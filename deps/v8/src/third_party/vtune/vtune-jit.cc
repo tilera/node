@@ -64,14 +64,9 @@ using namespace std;
 // To avoid GCC 4.4 compilation warning about hash_map being deprecated.
 #define OLD_DEPRECATED __DEPRECATED
 #undef __DEPRECATED
-#if defined (ANDROID)
-#include <hash_map>
-using namespace std;
-#else
 #include <ext/hash_map>
-using namespace __gnu_cxx;
-#endif
 #define __DEPRECATED OLD_DEPRECATED
+using namespace __gnu_cxx;
 #endif
 
 #include <list>
@@ -197,7 +192,8 @@ void VTUNEJITInterface::event_handler(const v8::JitCodeEvent* event) {
         if (*script != NULL) {
           // Get the source file name and set it to jmethod.source_file_name
          if ((*script->GetScriptName())->IsString()) {
-            Handle<String> script_name = script->GetScriptName()->ToString();
+            Handle<String> script_name =
+                Handle<String>(String::Cast(*script->GetScriptName()));
             temp_file_name = new char[script_name->Utf8Length() + 1];
             script_name->WriteUtf8(temp_file_name);
             jmethod.source_file_name = temp_file_name;

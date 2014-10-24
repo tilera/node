@@ -50,10 +50,13 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#ifndef WIN32
+#include <stdint.h>
+#endif
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_MIPS
+#if defined(V8_TARGET_ARCH_MIPS)
 
 #include "mips/constants-mips.h"
 #include "disasm.h"

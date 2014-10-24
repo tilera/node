@@ -103,10 +103,7 @@ local function MakeClangCommandLine(plugin, plugin_args, triple, arch_define)
       .. " -triple " .. triple
       .. " -D" .. arch_define
       .. " -DENABLE_DEBUGGER_SUPPORT"
-      .. " -DV8_I18N_SUPPORT"
       .. " -Isrc"
-      .. " -Ithird_party/icu/source/common"
-      .. " -Ithird_party/icu/source/i18n"
 end
 
 function InvokeClangPluginForEachFile(filenames, cfg, func)
@@ -120,8 +117,7 @@ function InvokeClangPluginForEachFile(filenames, cfg, func)
       if FLAGS.verbose then print('popen ', action) end
       local pipe = io.popen(action)
       func(filename, pipe:lines())
-      local success = pipe:close()
-      if not success then error("Failed to run: " .. action) end
+      pipe:close()
    end
 end
 

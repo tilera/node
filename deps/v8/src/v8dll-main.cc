@@ -30,8 +30,8 @@
 #undef USING_V8_SHARED
 #include "../include/v8.h"
 
-#if V8_OS_WIN
-#include "win32-headers.h"
+#ifdef WIN32
+#include <windows.h>  // NOLINT
 
 extern "C" {
 BOOL WINAPI DllMain(HANDLE hinstDLL,
@@ -41,4 +41,4 @@ BOOL WINAPI DllMain(HANDLE hinstDLL,
   return TRUE;
 }
 }
-#endif  // V8_OS_WIN
+#endif

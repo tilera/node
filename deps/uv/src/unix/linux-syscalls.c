@@ -44,6 +44,8 @@
 #  define __NR_accept4 288
 # elif defined(__i386__)
    /* Nothing. Handled through socketcall(). */
+# elif defined(__tilegx__)
+#  define __NR_accept4 242
 # elif defined(__arm__)
 #  define __NR_accept4 (UV_SYSCALL_BASE + 366)
 # endif
@@ -54,6 +56,8 @@
 #  define __NR_eventfd 284
 # elif defined(__i386__)
 #  define __NR_eventfd 323
+# elif defined(__tilegx__)
+#  define __NR_eventfd 1044
 # elif defined(__arm__)
 #  define __NR_eventfd (UV_SYSCALL_BASE + 351)
 # endif
@@ -64,6 +68,8 @@
 #  define __NR_eventfd2 290
 # elif defined(__i386__)
 #  define __NR_eventfd2 328
+# elif defined(__tilegx__)
+#  define __NR_eventfd2 19
 # elif defined(__arm__)
 #  define __NR_eventfd2 (UV_SYSCALL_BASE + 356)
 # endif
@@ -84,6 +90,8 @@
 #  define __NR_epoll_create1 291
 # elif defined(__i386__)
 #  define __NR_epoll_create1 329
+# elif defined(__tilegx__)
+#  define __NR_epoll_create1 20
 # elif defined(__arm__)
 #  define __NR_epoll_create1 (UV_SYSCALL_BASE + 357)
 # endif
@@ -94,6 +102,8 @@
 #  define __NR_epoll_ctl 233 /* used to be 214 */
 # elif defined(__i386__)
 #  define __NR_epoll_ctl 255
+# elif defined(__tilegx__)
+#  define __NR_epoll_ctl 21
 # elif defined(__arm__)
 #  define __NR_epoll_ctl (UV_SYSCALL_BASE + 251)
 # endif
@@ -114,6 +124,8 @@
 #  define __NR_epoll_pwait 281
 # elif defined(__i386__)
 #  define __NR_epoll_pwait 319
+# elif defined(__tilegx__)
+#  define __NR_epoll_pwait 22
 # elif defined(__arm__)
 #  define __NR_epoll_pwait (UV_SYSCALL_BASE + 346)
 # endif
@@ -124,6 +136,8 @@
 #  define __NR_inotify_init 253
 # elif defined(__i386__)
 #  define __NR_inotify_init 291
+# elif defined(__tilegx__)
+#  define __NR_inotify_init 1043
 # elif defined(__arm__)
 #  define __NR_inotify_init (UV_SYSCALL_BASE + 316)
 # endif
@@ -134,6 +148,8 @@
 #  define __NR_inotify_init1 294
 # elif defined(__i386__)
 #  define __NR_inotify_init1 332
+# elif defined(__tilegx__)
+#  define __NR_inotify_init1 26
 # elif defined(__arm__)
 #  define __NR_inotify_init1 (UV_SYSCALL_BASE + 360)
 # endif
@@ -144,6 +160,8 @@
 #  define __NR_inotify_add_watch 254
 # elif defined(__i386__)
 #  define __NR_inotify_add_watch 292
+# elif defined(__tilegx__)
+#  define __NR_inotify_add_watch 27
 # elif defined(__arm__)
 #  define __NR_inotify_add_watch (UV_SYSCALL_BASE + 317)
 # endif
@@ -154,6 +172,8 @@
 #  define __NR_inotify_rm_watch 255
 # elif defined(__i386__)
 #  define __NR_inotify_rm_watch 293
+# elif defined(__tilegx__)
+#  define __NR_inotify_rm_watch 28
 # elif defined(__arm__)
 #  define __NR_inotify_rm_watch (UV_SYSCALL_BASE + 318)
 # endif
@@ -164,6 +184,8 @@
 #  define __NR_pipe2 293
 # elif defined(__i386__)
 #  define __NR_pipe2 331
+# elif defined(__tilegx__)
+#  define __NR_pipe2 59
 # elif defined(__arm__)
 #  define __NR_pipe2 (UV_SYSCALL_BASE + 359)
 # endif
@@ -174,6 +196,8 @@
 #  define __NR_recvmmsg 299
 # elif defined(__i386__)
 #  define __NR_recvmmsg 337
+# elif defined(__tilegx__)
+#  define __NR_recvmmsg 243
 # elif defined(__arm__)
 #  define __NR_recvmmsg (UV_SYSCALL_BASE + 365)
 # endif
@@ -184,6 +208,8 @@
 #  define __NR_sendmmsg 307
 # elif defined(__i386__)
 #  define __NR_sendmmsg 345
+# elif defined(__tilegx__)
+#  define __NR_sendmsg 211
 # elif defined(__arm__)
 #  define __NR_sendmmsg (UV_SYSCALL_BASE + 374)
 # endif
@@ -194,6 +220,8 @@
 #  define __NR_utimensat 280
 # elif defined(__i386__)
 #  define __NR_utimensat 320
+# elif defined(__tilegx__)
+#  define __NR_utimensat 88
 # elif defined(__arm__)
 #  define __NR_utimensat (UV_SYSCALL_BASE + 348)
 # endif
@@ -250,6 +278,10 @@ int uv__eventfd2(unsigned int count, int flags) {
 int uv__epoll_create(int size) {
 #if defined(__NR_epoll_create)
   return syscall(__NR_epoll_create, size);
+#elif defined(__tilegx__)
+  if (size <= 0)
+      return errno = EINVAL, -1;
+  return syscall(__NR_epoll_create1, 1, 0);
 #else
   return errno = ENOSYS, -1;
 #endif
@@ -280,6 +312,8 @@ int uv__epoll_wait(int epfd,
                    int timeout) {
 #if defined(__NR_epoll_wait)
   return syscall(__NR_epoll_wait, epfd, events, nevents, timeout);
+#elif defined(__tilegx__)
+  return syscall(__NR_epoll_pwait, epfd, events, nevents, timeout, NULL);
 #else
   return errno = ENOSYS, -1;
 #endif

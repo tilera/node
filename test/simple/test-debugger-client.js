@@ -22,7 +22,7 @@
 
 
 
-process.env.NODE_DEBUGGER_TIMEOUT = 2000;
+process.env.NODE_DEBUGGER_TIMEOUT = 200000;
 var common = require('../common');
 var assert = require('assert');
 var debug = require('_debugger');
@@ -34,7 +34,7 @@ var spawn = require('child_process').spawn;
 setTimeout(function() {
   if (nodeProcess) nodeProcess.kill('SIGTERM');
   throw new Error('timeout');
-}, 10000).unref();
+}, 1000000).unref();
 
 
 var resCount = 0;
@@ -181,15 +181,11 @@ function doTest(cb, done) {
     console.error('got stderr data %j', data);
     nodeProcess.stderr.resume();
     b += data;
-    if (didTryConnect === false && b.match(/Debugger listening on port/)) {
+    if (didTryConnect == false &&
+        b.match(/debugger listening on port/)) {
       didTryConnect = true;
 
-      // The timeout is here to expose a race in the bootstrap process.
-      // Without the early SIGUSR1 debug handler, it effectively results
-      // in an infinite ECONNREFUSED loop.
-      setTimeout(tryConnect, 100);
-
-      function tryConnect() {
+      setTimeout(function() {
         // Wait for some data before trying to connect
         var c = new debug.Client();
         console.error('>>> connecting...');
@@ -201,16 +197,17 @@ function doTest(cb, done) {
           connectCount++;
           console.log('ready!');
           cb(c, function() {
-            console.error('>>> killing node process %d\n\n', nodeProcess.pid);
-            nodeProcess.kill();
-            done();
+            c.end();
+            c.on('end', function() {
+              console.error(
+                  '>>> killing node process %d\n\n',
+                  nodeProcess.pid);
+              nodeProcess.kill();
+              done();
+            });
           });
         });
-        c.on('error', function(err) {
-          if (err.code !== 'ECONNREFUSED') throw err;
-          setTimeout(tryConnect, 10);
-        });
-      }
+	  }, 200000);
     }
   });
 }
@@ -232,3 +229,4 @@ process.on('exit', function(code) {
   if (!code)
     assert.equal(expectedConnections, connectCount);
 });
+

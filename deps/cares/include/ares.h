@@ -1,6 +1,6 @@
 
-/* Copyright 1998 by the Massachusetts Institute of Technology.
- * Copyright (C) 2007-2013 by Daniel Stenberg
+/* Copyright 1998, 2009 by the Massachusetts Institute of Technology.
+ * Copyright (C) 2007-2011 by Daniel Stenberg
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -123,18 +123,22 @@ extern "C" {
 ** c-ares external API function linkage decorations.
 */
 
-#ifdef CARES_STATICLIB
-#  define CARES_EXTERN
-#elif defined(WIN32) || defined(_WIN32) || defined(__SYMBIAN32__)
+#if !defined(CARES_STATICLIB) && \
+   (defined(WIN32) || defined(_WIN32) || defined(__SYMBIAN32__))
+   /* __declspec function decoration for Win32 and Symbian DLL's */
 #  if defined(CARES_BUILDING_LIBRARY)
 #    define CARES_EXTERN  __declspec(dllexport)
 #  else
 #    define CARES_EXTERN  __declspec(dllimport)
 #  endif
-#elif defined(CARES_BUILDING_LIBRARY) && defined(CARES_SYMBOL_HIDING)
-#  define CARES_EXTERN CARES_SYMBOL_SCOPE_EXTERN
 #else
-#  define CARES_EXTERN
+   /* visibility function decoration for other cases */
+#  if !defined(CARES_SYMBOL_HIDING) || \
+     defined(WIN32) || defined(_WIN32) || defined(__SYMBIAN32__)
+#    define CARES_EXTERN
+#  else
+#    define CARES_EXTERN CARES_SYMBOL_SCOPE_EXTERN
+#  endif
 #endif
 
 
@@ -187,7 +191,6 @@ extern "C" {
 #define ARES_FLAG_NOSEARCH      (1 << 5)
 #define ARES_FLAG_NOALIASES     (1 << 6)
 #define ARES_FLAG_NOCHECKRESP   (1 << 7)
-#define ARES_FLAG_EDNS          (1 << 8)
 
 /* Option mask values */
 #define ARES_OPT_FLAGS          (1 << 0)
@@ -205,7 +208,6 @@ extern "C" {
 #define ARES_OPT_SOCK_RCVBUF    (1 << 12)
 #define ARES_OPT_TIMEOUTMS      (1 << 13)
 #define ARES_OPT_ROTATE         (1 << 14)
-#define ARES_OPT_EDNSPSZ        (1 << 15)
 
 /* Nameinfo flag values */
 #define ARES_NI_NOFQDN                  (1 << 0)
@@ -311,7 +313,6 @@ struct ares_options {
   void *sock_state_cb_data;
   struct apattern *sortlist;
   int nsort;
-  int ednspsz;
 };
 
 struct hostent;
@@ -449,15 +450,6 @@ CARES_EXTERN void ares_process(ares_channel channel,
 CARES_EXTERN void ares_process_fd(ares_channel channel,
                                   ares_socket_t read_fd,
                                   ares_socket_t write_fd);
-
-CARES_EXTERN int ares_create_query(const char *name,
-                                   int dnsclass,
-                                   int type,
-                                   unsigned short id,
-                                   int rd,
-                                   unsigned char **buf,
-                                   int *buflen,
-                                   int max_udp_size);
 
 CARES_EXTERN int ares_mkquery(const char *name,
                               int dnsclass,
@@ -597,6 +589,8 @@ CARES_EXTERN void ares_free_string(void *str);
 
 CARES_EXTERN void ares_free_hostent(struct hostent *host);
 
+CARES_EXTERN void ares_free_soa(struct ares_soa_reply *soa);
+
 CARES_EXTERN void ares_free_data(void *dataptr);
 
 CARES_EXTERN const char *ares_strerror(int code);
@@ -620,12 +614,6 @@ CARES_EXTERN int ares_set_servers_csv(ares_channel channel,
 
 CARES_EXTERN int ares_get_servers(ares_channel channel,
                                   struct ares_addr_node **servers);
-
-CARES_EXTERN const char *ares_inet_ntop(int af, const void *src, char *dst,
-                                        ares_socklen_t size);
-
-CARES_EXTERN int ares_inet_pton(int af, const char *src, void *dst);
-
 
 #ifdef  __cplusplus
 }

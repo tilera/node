@@ -46,15 +46,6 @@ var rsaPubPem = fs.readFileSync(common.fixturesDir + '/test_rsa_pubkey.pem',
     'ascii');
 var rsaKeyPem = fs.readFileSync(common.fixturesDir + '/test_rsa_privkey.pem',
     'ascii');
-var rsaKeyPemEncrypted = fs.readFileSync(
-  common.fixturesDir + '/test_rsa_privkey_encrypted.pem', 'ascii');
-var dsaPubPem = fs.readFileSync(common.fixturesDir + '/test_dsa_pubkey.pem',
-    'ascii');
-var dsaKeyPem = fs.readFileSync(common.fixturesDir + '/test_dsa_privkey.pem',
-    'ascii');
-var dsaKeyPemEncrypted = fs.readFileSync(
-  common.fixturesDir + '/test_dsa_privkey_encrypted.pem', 'ascii');
-
 
 try {
   var credentials = crypto.createCredentials(
@@ -455,15 +446,6 @@ a6.write('123');
 a6.end();
 a6 = a6.read();
 
-var a7 = crypto.createHash('sha512');
-a7.end();
-a7 = a7.read();
-
-var a8 = crypto.createHash('sha512');
-a8.write('');
-a8.end();
-a8 = a8.read();
-
 assert.equal(a0, '8308651804facb7b9af8ffc53a33a22d6a1c8ac2', 'Test SHA1');
 assert.equal(a1, 'h\u00ea\u00cb\u0097\u00d8o\fF!\u00fa+\u000e\u0017\u00ca' +
              '\u00bd\u008c', 'Test MD5 as binary');
@@ -486,8 +468,6 @@ assert.deepEqual(a4,
 // stream interface should produce the same result.
 assert.deepEqual(a5, a3, 'stream interface is consistent');
 assert.deepEqual(a6, a3, 'stream interface is consistent');
-assert.notEqual(a7, undefined, 'no data should return data');
-assert.notEqual(a8, undefined, 'empty string should generate data');
 
 // Test multiple updates to same hash
 var h1 = crypto.createHash('sha1').update('Test123').digest('hex');
@@ -770,30 +750,6 @@ assert.equal(rsaSignature,
 rsaVerify.update(rsaPubPem);
 assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
 
-// Test RSA key signing/verification with encrypted key
-rsaSign = crypto.createSign('RSA-SHA1');
-rsaSign.update(rsaPubPem);
-assert.doesNotThrow(function() {
-  var signOptions = { key: rsaKeyPemEncrypted, passphrase: 'password' };
-  rsaSignature = rsaSign.sign(signOptions, 'hex');
-});
-assert.equal(rsaSignature,
-             '5c50e3145c4e2497aadb0eabc83b342d0b0021ece0d4c4a064b7c' +
-             '8f020d7e2688b122bfb54c724ac9ee169f83f66d2fe90abeb95e8' +
-             'e1290e7e177152a4de3d944cf7d4883114a20ed0f78e70e25ef0f' +
-             '60f06b858e6af42a2f276ede95bbc6bc9a9bbdda15bd663186a6f' +
-             '40819a7af19e577bb2efa5e579a1f5ce8a0d4ca8b8f6');
-
-rsaVerify = crypto.createVerify('RSA-SHA1');
-rsaVerify.update(rsaPubPem);
-assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
-
-rsaSign = crypto.createSign('RSA-SHA1');
-rsaSign.update(rsaPubPem);
-assert.throws(function() {
-  var signOptions = { key: rsaKeyPemEncrypted, passphrase: 'wrong' };
-  rsaSign.sign(signOptions, 'hex');
-});
 
 //
 // Test RSA signing and verification
@@ -831,48 +787,24 @@ assert.throws(function() {
 // Test DSA signing and verification
 //
 (function() {
+  var privateKey = fs.readFileSync(
+      common.fixturesDir + '/test_dsa_privkey.pem');
+
+  var publicKey = fs.readFileSync(
+      common.fixturesDir + '/test_dsa_pubkey.pem');
+
   var input = 'I AM THE WALRUS';
 
   // DSA signatures vary across runs so there is no static string to verify
   // against
   var sign = crypto.createSign('DSS1');
   sign.update(input);
-  var signature = sign.sign(dsaKeyPem, 'hex');
+  var signature = sign.sign(privateKey, 'hex');
 
   var verify = crypto.createVerify('DSS1');
   verify.update(input);
 
-  assert.strictEqual(verify.verify(dsaPubPem, signature, 'hex'), true);
-})();
-
-
-//
-// Test DSA signing and verification with encrypted key
-//
-(function() {
-  var input = 'I AM THE WALRUS';
-
-  var sign = crypto.createSign('DSS1');
-  sign.update(input);
-  assert.throws(function() {
-    sign.sign({ key: dsaKeyPemEncrypted, passphrase: 'wrong' }, 'hex');
-  });
-
-  // DSA signatures vary across runs so there is no static string to verify
-  // against
-  var sign = crypto.createSign('DSS1');
-  sign.update(input);
-
-  var signature;
-  assert.doesNotThrow(function() {
-    var signOptions = { key: dsaKeyPemEncrypted, passphrase: 'password' };
-    signature = sign.sign(signOptions, 'hex');
-  });
-
-  var verify = crypto.createVerify('DSS1');
-  verify.update(input);
-
-  assert.strictEqual(verify.verify(dsaPubPem, signature, 'hex'), true);
+  assert.strictEqual(verify.verify(publicKey, signature, 'hex'), true);
 })();
 
 
@@ -935,6 +867,8 @@ assert.notEqual(-1, crypto.getHashes().indexOf('sha1'));
 assert.notEqual(-1, crypto.getHashes().indexOf('sha'));
 assert.equal(-1, crypto.getHashes().indexOf('SHA1'));
 assert.equal(-1, crypto.getHashes().indexOf('SHA'));
+assert.notEqual(-1, crypto.getHashes().indexOf('RSA-SHA1'));
+assert.equal(-1, crypto.getHashes().indexOf('rsa-sha1'));
 assertSorted(crypto.getHashes());
 
 // Base64 padding regression test, see #4837.
@@ -1006,5 +940,15 @@ assert.throws(function() {
   crypto.createVerify('RSA-SHA1').update('0', 'hex');
 }, /Bad input string/);
 
-// Make sure memory isn't released before being returned
-console.log(crypto.randomBytes(16));
+assert.throws(function() {
+  var private = [
+    '-----BEGIN RSA PRIVATE KEY-----',
+    'MIGrAgEAAiEA+3z+1QNF2/unumadiwEr+C5vfhezsb3hp4jAnCNRpPcCAwEAAQIgQNriSQK4',
+    'EFwczDhMZp2dvbcz7OUUyt36z3S4usFPHSECEQD/41K7SujrstBfoCPzwC1xAhEA+5kt4BJy',
+    'eKN7LggbF3Dk5wIQN6SL+fQ5H/+7NgARsVBp0QIRANxYRukavs4QvuyNhMx+vrkCEQCbf6j/',
+    'Ig6/HueCK/0Jkmp+',
+    '-----END RSA PRIVATE KEY-----',
+    ''
+  ].join('\n');
+  crypto.createSign('RSA-SHA256').update('test').sign(private);
+}, /SignFinal/);

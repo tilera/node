@@ -29,6 +29,7 @@
 
 #include "d8.h"
 #include "d8-debug.h"
+#include "platform.h"
 #include "debug-agent.h"
 
 
@@ -49,12 +50,14 @@ void PrintPrompt() {
 }
 
 
-void HandleDebugEvent(const Debug::EventDetails& event_details) {
+void HandleDebugEvent(DebugEvent event,
+                      Handle<Object> exec_state,
+                      Handle<Object> event_data,
+                      Handle<Value> data) {
   // TODO(svenpanne) There should be a way to retrieve this in the callback.
   Isolate* isolate = Isolate::GetCurrent();
   HandleScope scope(isolate);
 
-  DebugEvent event = event_details.GetEvent();
   // Check for handled event.
   if (event != Break && event != Exception && event != AfterCompile) {
     return;
@@ -64,9 +67,8 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
   // Get the toJSONProtocol function on the event and get the JSON format.
   Local<String> to_json_fun_name = String::New("toJSONProtocol");
-  Handle<Object> event_data = event_details.GetEventData();
   Local<Function> to_json_fun =
-      Local<Function>::Cast(event_data->Get(to_json_fun_name));
+      Function::Cast(*event_data->Get(to_json_fun_name));
   Local<Value> event_json = to_json_fun->Call(event_data, 0, NULL);
   if (try_catch.HasCaught()) {
     Shell::ReportException(isolate, &try_catch);
@@ -75,7 +77,7 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
   // Print the event details.
   Handle<Object> details =
-      Shell::DebugMessageDetails(isolate, Handle<String>::Cast(event_json));
+      Shell::DebugMessageDetails(Handle<String>::Cast(event_json));
   if (try_catch.HasCaught()) {
     Shell::ReportException(isolate, &try_catch);
     return;
@@ -89,10 +91,9 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
   // Get the debug command processor.
   Local<String> fun_name = String::New("debugCommandProcessor");
-  Handle<Object> exec_state = event_details.GetExecutionState();
-  Local<Function> fun = Local<Function>::Cast(exec_state->Get(fun_name));
+  Local<Function> fun = Function::Cast(*exec_state->Get(fun_name));
   Local<Object> cmd_processor =
-      Local<Object>::Cast(fun->Call(exec_state, 0, NULL));
+      Object::Cast(*fun->Call(exec_state, 0, NULL));
   if (try_catch.HasCaught()) {
     Shell::ReportException(isolate, &try_catch);
     return;
@@ -113,7 +114,7 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
     // Convert the debugger command to a JSON debugger request.
     Handle<Value> request =
-        Shell::DebugCommandToJSONRequest(isolate, String::New(command));
+        Shell::DebugCommandToJSONRequest(String::New(command));
     if (try_catch.HasCaught()) {
       Shell::ReportException(isolate, &try_catch);
       continue;
@@ -145,8 +146,7 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
     Handle<String> response = Handle<String>::Cast(response_val);
 
     // Convert the debugger response into text details and the running state.
-    Handle<Object> response_details =
-        Shell::DebugMessageDetails(isolate, response);
+    Handle<Object> response_details = Shell::DebugMessageDetails(response);
     if (try_catch.HasCaught()) {
       Shell::ReportException(isolate, &try_catch);
       continue;
@@ -170,14 +170,21 @@ void RunRemoteDebugger(Isolate* isolate, int port) {
 void RemoteDebugger::Run() {
   bool ok;
 
+  // Make sure that socket support is initialized.
+  ok = i::Socket::SetUp();
+  if (!ok) {
+    printf("Unable to initialize socket support %d\n", i::Socket::LastError());
+    return;
+  }
+
   // Connect to the debugger agent.
-  conn_ = new i::Socket;
+  conn_ = i::OS::CreateSocket();
   static const int kPortStrSize = 6;
   char port_str[kPortStrSize];
   i::OS::SNPrintF(i::Vector<char>(port_str, kPortStrSize), "%d", port_);
   ok = conn_->Connect("localhost", port_str);
   if (!ok) {
-    printf("Unable to connect to debug agent %d\n", i::Socket::GetLastError());
+    printf("Unable to connect to debug agent %d\n", i::Socket::LastError());
     return;
   }
 
@@ -193,7 +200,7 @@ void RemoteDebugger::Run() {
   // Process events received from debugged VM and from the keyboard.
   bool terminate = false;
   while (!terminate) {
-    event_available_.Wait();
+    event_available_->Wait();
     RemoteDebuggerEvent* event = GetEvent();
     switch (event->type()) {
       case RemoteDebuggerEvent::kMessage:
@@ -240,7 +247,7 @@ void RemoteDebugger::ConnectionClosed() {
 
 
 void RemoteDebugger::AddEvent(RemoteDebuggerEvent* event) {
-  i::LockGuard<i::Mutex> lock_guard(&event_access_);
+  i::ScopedLock lock(event_access_);
   if (head_ == NULL) {
     ASSERT(tail_ == NULL);
     head_ = event;
@@ -250,12 +257,12 @@ void RemoteDebugger::AddEvent(RemoteDebuggerEvent* event) {
     tail_->set_next(event);
     tail_ = event;
   }
-  event_available_.Signal();
+  event_available_->Signal();
 }
 
 
 RemoteDebuggerEvent* RemoteDebugger::GetEvent() {
-  i::LockGuard<i::Mutex> lock_guard(&event_access_);
+  i::ScopedLock lock(event_access_);
   ASSERT(head_ != NULL);
   RemoteDebuggerEvent* result = head_;
   head_ = head_->next();
@@ -274,8 +281,7 @@ void RemoteDebugger::HandleMessageReceived(char* message) {
   // Print the event details.
   TryCatch try_catch;
   Handle<Object> details =
-      Shell::DebugMessageDetails(isolate_,
-                                 Handle<String>::Cast(String::New(message)));
+      Shell::DebugMessageDetails(Handle<String>::Cast(String::New(message)));
   if (try_catch.HasCaught()) {
     Shell::ReportException(isolate_, &try_catch);
     PrintPrompt();
@@ -304,7 +310,7 @@ void RemoteDebugger::HandleKeyboardCommand(char* command) {
   // Convert the debugger command to a JSON debugger request.
   TryCatch try_catch;
   Handle<Value> request =
-      Shell::DebugCommandToJSONRequest(isolate_, String::New(command));
+      Shell::DebugCommandToJSONRequest(String::New(command));
   if (try_catch.HasCaught()) {
     Shell::ReportException(isolate_, &try_catch);
     PrintPrompt();

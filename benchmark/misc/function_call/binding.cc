@@ -5,12 +5,13 @@ using namespace v8;
 
 static int c = 0;
 
-void Hello(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(c++);
+static Handle<Value> Hello(const Arguments& args) {
+  HandleScope scope;
+  return scope.Close(Integer::New(c++));
 }
 
 extern "C" void init (Handle<Object> target) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
   NODE_SET_METHOD(target, "hello", Hello);
 }
 

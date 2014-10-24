@@ -28,7 +28,6 @@
 #include <stdint.h>
 #include <signal.h>
 #include <sys/types.h>
-#include <sys/time.h>
 #include <sys/socket.h>
 
 #if defined(__alpha__)
@@ -37,6 +36,8 @@
 # define UV__O_CLOEXEC        0x200000
 #elif defined(__sparc__)
 # define UV__O_CLOEXEC        0x400000
+#elif defined(__tilegx__)
+# define UV__O_CLOEXEC        02000000
 #else
 # define UV__O_CLOEXEC        0x80000
 #endif
@@ -49,6 +50,8 @@
 # define UV__O_NONBLOCK       0x80
 #elif defined(__sparc__)
 # define UV__O_NONBLOCK       0x4000
+#elif defined(__tilegx__)
+# define UV__O_NONBLOCK       00004000
 #else
 # define UV__O_NONBLOCK       0x800
 #endif

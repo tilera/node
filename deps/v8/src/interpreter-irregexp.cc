@@ -618,7 +618,7 @@ RegExpImpl::IrregexpResult IrregexpInterpreter::Match(
     int start_position) {
   ASSERT(subject->IsFlat());
 
-  DisallowHeapAllocation no_gc;
+  AssertNoAllocation a;
   const byte* code_base = code_array->GetDataStartAddress();
   uc16 previous_char = '\n';
   String::FlatContent subject_content = subject->GetFlatContent();

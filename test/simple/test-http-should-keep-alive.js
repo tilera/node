@@ -42,7 +42,6 @@ var SHOULD_KEEP_ALIVE = [
 ];
 var requests = 0;
 var responses = 0;
-http.globalAgent.maxSockets = 5;
 
 var server = net.createServer(function(socket) {
   socket.write(SERVER_RESPONSES[requests]);

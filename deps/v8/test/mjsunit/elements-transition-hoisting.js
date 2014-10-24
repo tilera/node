@@ -25,7 +25,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --smi-only-arrays --notrack-allocation-sites
+// Flags: --allow-natives-syntax --smi-only-arrays --noparallel-recompilation
+// Flags: --notrack-allocation-sites
 
 // No tracking of allocation sites because it interfers with the semantics
 // the test is trying to ensure.
@@ -62,7 +63,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testDoubleConversion4);
   testDoubleConversion4(new Array(5));
   testDoubleConversion4(new Array(5));
-  assertOptimized(testDoubleConversion4);
+  assertTrue(2 != %GetOptimizationStatus(testDoubleConversion4));
   %ClearFunctionTypeFeedback(testDoubleConversion4);
 
   // Make sure that non-element related map checks that are not preceded by
@@ -88,7 +89,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testExactMapHoisting);
   testExactMapHoisting(new Array(5));
   testExactMapHoisting(new Array(5));
-  assertOptimized(testExactMapHoisting);
+  assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting));
   %ClearFunctionTypeFeedback(testExactMapHoisting);
 
   // Make sure that non-element related map checks do NOT get hoisted if they
@@ -120,7 +121,7 @@ if (support_smi_only_arrays) {
   testExactMapHoisting2(new Array(5));
   testExactMapHoisting2(new Array(5));
   // Temporarily disabled - see bug 2176.
-  // assertOptimized(testExactMapHoisting2);
+  // assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting2));
   %ClearFunctionTypeFeedback(testExactMapHoisting2);
 
   // Make sure that non-element related map checks do get hoisted if they use
@@ -128,7 +129,7 @@ if (support_smi_only_arrays) {
   // upon can hoisted, too.
   function testExactMapHoisting3(a) {
     var object = new Object();
-    a.foo = null;
+    a.foo = 0;
     a[0] = 0;
     a[1] = 1;
     var count = 3;
@@ -149,7 +150,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testExactMapHoisting3);
   testExactMapHoisting3(new Array(5));
   testExactMapHoisting3(new Array(5));
-  assertOptimized(testExactMapHoisting3);
+  assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting3));
   %ClearFunctionTypeFeedback(testExactMapHoisting3);
 
   function testDominatingTransitionHoisting1(a) {
@@ -176,7 +177,7 @@ if (support_smi_only_arrays) {
   // TODO(verwaest) With current changes the elements transition gets hoisted
   // above the access, causing a deopt. We should update the type of access
   // rather than forbid hoisting the transition.
-  assertOptimized(testDominatingTransitionHoisting1);
+  assertTrue(2 != %GetOptimizationStatus(testDominatingTransitionHoisting1));
   %ClearFunctionTypeFeedback(testDominatingTransitionHoisting1);
   */
 
@@ -197,7 +198,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testHoistingWithSideEffect);
   testHoistingWithSideEffect(new Array(5));
   testHoistingWithSideEffect(new Array(5));
-  assertOptimized(testHoistingWithSideEffect);
+  assertTrue(2 != %GetOptimizationStatus(testHoistingWithSideEffect));
   %ClearFunctionTypeFeedback(testHoistingWithSideEffect);
 
   function testStraightLineDupeElinination(a,b,c,d,e,f) {
@@ -236,6 +237,6 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testStraightLineDupeElinination);
   testStraightLineDupeElinination(new Array(5),0,0,0,0,0);
   testStraightLineDupeElinination(new Array(5),0,0,0,0,0);
-  assertOptimized(testStraightLineDupeElinination);
+  assertTrue(2 != %GetOptimizationStatus(testStraightLineDupeElinination));
   %ClearFunctionTypeFeedback(testStraightLineDupeElinination);
 }

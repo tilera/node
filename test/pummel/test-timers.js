@@ -22,7 +22,7 @@
 var common = require('../common');
 var assert = require('assert');
 
-var WINDOW = 200; // why is does this need to be so big?
+var WINDOW = 1000; // why is does this need to be so big?
 
 var interval_count = 0;
 var setTimeout_called = false;
@@ -40,9 +40,9 @@ setTimeout(function() {
   assert.ok(diff > 0);
   console.error('diff: ' + diff);
 
-  assert.equal(true, 1000 - WINDOW < diff && diff < 1000 + WINDOW);
+  assert.equal(true,10000 - WINDOW < diff && diff < 10000 + WINDOW);
   setTimeout_called = true;
-}, 1000);
+}, 10000);
 
 // this timer shouldn't execute
 var id = setTimeout(function() { assert.equal(true, false); }, 500);
@@ -69,7 +69,7 @@ setInterval(function() {
 // Single param:
 setTimeout(function(param) {
   assert.equal('test param', param);
-}, 1000, 'test param');
+}, 10000, 'test param');
 
 var interval_count2 = 0;
 setInterval(function(param) {
@@ -85,7 +85,7 @@ setInterval(function(param) {
 setTimeout(function(param1, param2) {
   assert.equal('param1', param1);
   assert.equal('param2', param2);
-}, 1000, 'param1', 'param2');
+}, 10000, 'param1', 'param2');
 
 var interval_count3 = 0;
 setInterval(function(param1, param2) {
@@ -111,12 +111,12 @@ function t() {
   expectedTimeouts--;
 }
 
-var w = setTimeout(t, 200);
-var x = setTimeout(t, 200);
-var y = setTimeout(t, 200);
+var w = setTimeout(t, 2000);
+var x = setTimeout(t, 2000);
+var y = setTimeout(t, 2000);
 
 clearTimeout(y);
-var z = setTimeout(t, 200);
+var z = setTimeout(t, 2000);
 clearTimeout(y);
 
 

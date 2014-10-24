@@ -46,8 +46,7 @@ Same as `console.error`.
 
 ## console.dir(obj)
 
-Uses `util.inspect` on `obj` and prints resulting string to stdout. This function
-bypasses any custom `inspect()` function on `obj`.
+Uses `util.inspect` on `obj` and prints resulting string to stdout.
 
 ## console.time(label)
 

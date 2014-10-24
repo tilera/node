@@ -75,9 +75,7 @@ class IncrementalMarking {
 
   bool WorthActivating();
 
-  enum CompactionFlag { ALLOW_COMPACTION, PREVENT_COMPACTION };
-
-  void Start(CompactionFlag flag = ALLOW_COMPACTION);
+  void Start();
 
   void Stop();
 
@@ -112,7 +110,10 @@ class IncrementalMarking {
   static const intptr_t kMarkingSpeedAccelleration = 2;
   static const intptr_t kMaxMarkingSpeed = 1000;
 
-  void OldSpaceStep(intptr_t allocated);
+  void OldSpaceStep(intptr_t allocated) {
+    Step(allocated * kFastMarking / kInitialMarkingSpeed,
+         GC_VIA_STACK_GUARD);
+  }
 
   void Step(intptr_t allocated, CompletionAction action);
 
@@ -220,14 +221,12 @@ class IncrementalMarking {
 
   void UncommitMarkingDeque();
 
-  void NotifyIncompleteScanOfObject(int unscanned_bytes) {
-    unscanned_bytes_of_large_object_ = unscanned_bytes;
-  }
-
  private:
   int64_t SpaceLeftInOldSpace();
 
   void ResetStepCounters();
+
+  enum CompactionFlag { ALLOW_COMPACTION, PREVENT_COMPACTION };
 
   void StartMarking(CompactionFlag flag);
 
@@ -277,8 +276,6 @@ class IncrementalMarking {
   intptr_t write_barriers_invoked_since_last_step_;
 
   int no_marking_scope_depth_;
-
-  int unscanned_bytes_of_large_object_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(IncrementalMarking);
 };

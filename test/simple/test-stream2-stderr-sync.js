@@ -23,9 +23,6 @@
 
 var common = require('../common.js');
 var assert = require('assert');
-var util = require('util');
-
-var errnoException = util._errnoException;
 
 function parent() {
   var spawn = require('child_process').spawn;
@@ -65,12 +62,11 @@ function child0() {
   }
 
   W.prototype._write = function(chunk, encoding, cb) {
-    var req = { oncomplete: afterWrite };
-    var err = handle.writeUtf8String(req, chunk.toString() + '\n');
-    if (err) throw errnoException(err, 'write');
+    var req = handle.writeUtf8String(chunk.toString() + '\n');
     // here's the problem.
     // it needs to tell the Writable machinery that it's ok to write
     // more, but that the current buffer length is handle.writeQueueSize
+    req.oncomplete = afterWrite
     if (req.writeQueueSize === 0)
       req.cb = cb;
     else

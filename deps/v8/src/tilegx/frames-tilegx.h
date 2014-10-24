@@ -252,10 +252,6 @@ const int kNumSafepointSavedRegisters =
 
 typedef Object* JSCallerSavedBuffer[kNumJSCallerSaved];
 
-inline void StackHandler::SetFp(Address slot, Address fp) {
-  Memory::Address_at(slot) = fp;
-}
-
 } }  // namespace v8::internal
 
 #endif

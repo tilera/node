@@ -1,0 +1,21 @@
+scripts/doc-build.sh doc/api/npm-search.md man/man3/npm-search.3
+make[1]: Entering directory `/home/scratch/tbenson/node.js.hack/node-v0.10.29/deps/npm'
+node cli.js install ronn --no-global
+npm WARN package.json github-url-from-git@1.1.1 No repository field.
+ronn@0.4.0 node_modules/ronn
+├── opts@1.2.2
+└── markdown@0.5.0 (nopt@2.1.2)
+make[1]: Leaving directory `/home/scratch/tbenson/node.js.hack/node-v0.10.29/deps/npm'
+scripts/doc-build.sh doc/api/npm-update.md man/man3/npm-update.3
+scripts/doc-build.sh doc/api/npm-prefix.md man/man3/npm-prefix.3
+scripts/doc-build.sh doc/api/npm-docs.md man/man3/npm-docs.3
+scripts/doc-build.sh doc/cli/npm-submodule.md man/man1/npm-submodule.1
+scripts/doc-build.sh doc/cli/npm-edit.md man/man1/npm-edit.1
+scripts/doc-build.sh doc/cli/npm-cache.md man/man1/npm-cache.1
+scripts/doc-build.sh doc/cli/npm-test.md man/man1/npm-test.1
+cp man/man5/package.json.5 man/man5/npm-json.5
+cp man/man5/npm-folders.5 man/man5/npm-global.5
+scripts/doc-build.sh doc/misc/npm-scripts.md man/man7/npm-scripts.7
+scripts/doc-build.sh doc/api/npm-owner.md html/doc/api/npm-owner.html
+scripts/doc-build.sh: line 58: ./node_modules/.bin/marked: No such file or directory
+make: *** [html/doc/api/npm-owner.html] Error 1

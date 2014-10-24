@@ -38,7 +38,6 @@ var connectCount = 0;
 
 server.listen(common.PORT, function() {
   var agent = new http.Agent({ maxSockets: 1 });
-  var name = agent.getName({ port: common.PORT });
   var request = http.request({
     method: 'GET',
     path: '/',
@@ -46,7 +45,7 @@ server.listen(common.PORT, function() {
     port: common.PORT,
     agent: agent
   }, function(res) {
-    assert.equal(1, agent.sockets[name].length);
+    assert.equal(1, agent.sockets['localhost:' + common.PORT].length);
     res.resume();
   });
   request.on('socket', function(s) {
@@ -63,7 +62,7 @@ server.listen(common.PORT, function() {
     port: common.PORT,
     agent: agent
   }, function(res) {
-    assert.equal(1, agent.sockets[name].length);
+    assert.equal(1, agent.sockets['localhost:' + common.PORT].length);
     res.resume();
   });
   request.on('socket', function(s) {
@@ -80,7 +79,7 @@ server.listen(common.PORT, function() {
     agent: agent
   }, function(response) {
     response.on('end', function() {
-      assert.equal(1, agent.sockets[name].length);
+      assert.equal(1, agent.sockets['localhost:' + common.PORT].length);
       server.close();
     });
     response.resume();

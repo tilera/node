@@ -37,9 +37,7 @@ namespace internal {
 
 #ifdef OBJECT_PRINT
 
-void MaybeObject::Print() {
-  Print(stdout);
-}
+static const char* TypeToString(InstanceType type);
 
 
 void MaybeObject::Print(FILE* out) {
@@ -54,11 +52,6 @@ void MaybeObject::Print(FILE* out) {
     Failure::cast(this)->FailurePrint(out);
   }
   Flush(out);
-}
-
-
-void MaybeObject::PrintLn() {
-  PrintLn(stdout);
 }
 
 
@@ -94,9 +87,6 @@ void HeapObject::HeapObjectPrint(FILE* out) {
       break;
     case FIXED_DOUBLE_ARRAY_TYPE:
       FixedDoubleArray::cast(this)->FixedDoubleArrayPrint(out);
-      break;
-    case CONSTANT_POOL_ARRAY_TYPE:
-      ConstantPoolArray::cast(this)->ConstantPoolArrayPrint(out);
       break;
     case FIXED_ARRAY_TYPE:
       FixedArray::cast(this)->FixedArrayPrint(out);
@@ -180,17 +170,8 @@ void HeapObject::HeapObjectPrint(FILE* out) {
     case JS_FUNCTION_PROXY_TYPE:
       JSFunctionProxy::cast(this)->JSFunctionProxyPrint(out);
       break;
-    case JS_SET_TYPE:
-      JSSet::cast(this)->JSSetPrint(out);
-      break;
-    case JS_MAP_TYPE:
-      JSMap::cast(this)->JSMapPrint(out);
-      break;
     case JS_WEAK_MAP_TYPE:
       JSWeakMap::cast(this)->JSWeakMapPrint(out);
-      break;
-    case JS_WEAK_SET_TYPE:
-      JSWeakSet::cast(this)->JSWeakSetPrint(out);
       break;
     case FOREIGN_TYPE:
       Foreign::cast(this)->ForeignPrint(out);
@@ -201,20 +182,14 @@ void HeapObject::HeapObjectPrint(FILE* out) {
     case JS_MESSAGE_OBJECT_TYPE:
       JSMessageObject::cast(this)->JSMessageObjectPrint(out);
       break;
-    case CELL_TYPE:
-      Cell::cast(this)->CellPrint(out);
-      break;
-    case PROPERTY_CELL_TYPE:
-      PropertyCell::cast(this)->PropertyCellPrint(out);
+    case JS_GLOBAL_PROPERTY_CELL_TYPE:
+      JSGlobalPropertyCell::cast(this)->JSGlobalPropertyCellPrint(out);
       break;
     case JS_ARRAY_BUFFER_TYPE:
       JSArrayBuffer::cast(this)->JSArrayBufferPrint(out);
       break;
     case JS_TYPED_ARRAY_TYPE:
       JSTypedArray::cast(this)->JSTypedArrayPrint(out);
-      break;
-    case JS_DATA_VIEW_TYPE:
-      JSDataView::cast(this)->JSDataViewPrint(out);
       break;
 #define MAKE_STRUCT_CASE(NAME, Name, name) \
   case NAME##_TYPE:                        \
@@ -296,13 +271,13 @@ void JSObject::PrintProperties(FILE* out) {
       switch (descs->GetType(i)) {
         case FIELD: {
           int index = descs->GetFieldIndex(i);
-          RawFastPropertyAt(index)->ShortPrint(out);
+          FastPropertyAt(index)->ShortPrint(out);
           PrintF(out, " (field at offset %d)\n", index);
           break;
         }
-        case CONSTANT:
-          descs->GetConstant(i)->ShortPrint(out);
-          PrintF(out, " (constant)\n");
+        case CONSTANT_FUNCTION:
+          descs->GetConstantFunction(i)->ShortPrint(out);
+          PrintF(out, " (constant function)\n");
           break;
         case CALLBACKS:
           descs->GetCallbacksObject(i)->ShortPrint(out);
@@ -456,8 +431,8 @@ void JSObject::PrintTransitions(FILE* out) {
         PrintF(out, " (transition to field)\n");
         break;
       }
-      case CONSTANT:
-        PrintF(out, " (transition to constant)\n");
+      case CONSTANT_FUNCTION:
+        PrintF(out, " (transition to constant function)\n");
         break;
       case CALLBACKS:
         PrintF(out, " (transition to callback)\n");
@@ -494,7 +469,7 @@ void JSObject::JSObjectPrint(FILE* out) {
 
 void JSModule::JSModulePrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSModule");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - context = ");
   context()->Print(out);
   PrintF(out, " - scope_info = ");
@@ -509,12 +484,76 @@ void JSModule::JSModulePrint(FILE* out) {
 
 static const char* TypeToString(InstanceType type) {
   switch (type) {
-#define TYPE_TO_STRING(TYPE) case TYPE: return #TYPE;
-  INSTANCE_TYPE_LIST(TYPE_TO_STRING)
-#undef TYPE_TO_STRING
+    case INVALID_TYPE: return "INVALID";
+    case MAP_TYPE: return "MAP";
+    case HEAP_NUMBER_TYPE: return "HEAP_NUMBER";
+    case SYMBOL_TYPE: return "SYMBOL";
+    case STRING_TYPE: return "TWO_BYTE_STRING";
+    case ASCII_STRING_TYPE: return "ASCII_STRING";
+    case CONS_STRING_TYPE:
+    case CONS_ASCII_STRING_TYPE:
+      return "CONS_STRING";
+    case EXTERNAL_STRING_TYPE:
+    case EXTERNAL_ASCII_STRING_TYPE:
+    case EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "EXTERNAL_STRING";
+    case SHORT_EXTERNAL_STRING_TYPE:
+    case SHORT_EXTERNAL_ASCII_STRING_TYPE:
+    case SHORT_EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "SHORT_EXTERNAL_STRING";
+    case INTERNALIZED_STRING_TYPE: return "INTERNALIZED_STRING";
+    case ASCII_INTERNALIZED_STRING_TYPE: return "ASCII_INTERNALIZED_STRING";
+    case CONS_INTERNALIZED_STRING_TYPE: return "CONS_INTERNALIZED_STRING";
+    case CONS_ASCII_INTERNALIZED_STRING_TYPE:
+      return "CONS_ASCII_INTERNALIZED_STRING";
+    case EXTERNAL_INTERNALIZED_STRING_TYPE:
+    case EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
+    case EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "EXTERNAL_INTERNALIZED_STRING";
+    case SHORT_EXTERNAL_INTERNALIZED_STRING_TYPE:
+    case SHORT_EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
+    case SHORT_EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
+      return "SHORT_EXTERNAL_INTERNALIZED_STRING";
+    case FIXED_ARRAY_TYPE: return "FIXED_ARRAY";
+    case BYTE_ARRAY_TYPE: return "BYTE_ARRAY";
+    case FREE_SPACE_TYPE: return "FREE_SPACE";
+    case EXTERNAL_PIXEL_ARRAY_TYPE: return "EXTERNAL_PIXEL_ARRAY";
+    case EXTERNAL_BYTE_ARRAY_TYPE: return "EXTERNAL_BYTE_ARRAY";
+    case EXTERNAL_UNSIGNED_BYTE_ARRAY_TYPE:
+      return "EXTERNAL_UNSIGNED_BYTE_ARRAY";
+    case EXTERNAL_SHORT_ARRAY_TYPE: return "EXTERNAL_SHORT_ARRAY";
+    case EXTERNAL_UNSIGNED_SHORT_ARRAY_TYPE:
+      return "EXTERNAL_UNSIGNED_SHORT_ARRAY";
+    case EXTERNAL_INT_ARRAY_TYPE: return "EXTERNAL_INT_ARRAY";
+    case EXTERNAL_UNSIGNED_INT_ARRAY_TYPE:
+      return "EXTERNAL_UNSIGNED_INT_ARRAY";
+    case EXTERNAL_FLOAT_ARRAY_TYPE: return "EXTERNAL_FLOAT_ARRAY";
+    case EXTERNAL_DOUBLE_ARRAY_TYPE: return "EXTERNAL_DOUBLE_ARRAY";
+    case FILLER_TYPE: return "FILLER";
+    case JS_OBJECT_TYPE: return "JS_OBJECT";
+    case JS_CONTEXT_EXTENSION_OBJECT_TYPE: return "JS_CONTEXT_EXTENSION_OBJECT";
+    case ODDBALL_TYPE: return "ODDBALL";
+    case JS_GLOBAL_PROPERTY_CELL_TYPE: return "JS_GLOBAL_PROPERTY_CELL";
+    case SHARED_FUNCTION_INFO_TYPE: return "SHARED_FUNCTION_INFO";
+    case JS_GENERATOR_OBJECT_TYPE: return "JS_GENERATOR_OBJECT";
+    case JS_MODULE_TYPE: return "JS_MODULE";
+    case JS_FUNCTION_TYPE: return "JS_FUNCTION";
+    case CODE_TYPE: return "CODE";
+    case JS_ARRAY_TYPE: return "JS_ARRAY";
+    case JS_PROXY_TYPE: return "JS_PROXY";
+    case JS_WEAK_MAP_TYPE: return "JS_WEAK_MAP";
+    case JS_REGEXP_TYPE: return "JS_REGEXP";
+    case JS_VALUE_TYPE: return "JS_VALUE";
+    case JS_GLOBAL_OBJECT_TYPE: return "JS_GLOBAL_OBJECT";
+    case JS_BUILTINS_OBJECT_TYPE: return "JS_BUILTINS_OBJECT";
+    case JS_GLOBAL_PROXY_TYPE: return "JS_GLOBAL_PROXY";
+    case FOREIGN_TYPE: return "FOREIGN";
+    case JS_MESSAGE_OBJECT_TYPE: return "JS_MESSAGE_OBJECT_TYPE";
+#define MAKE_STRUCT_CASE(NAME, Name, name) case NAME##_TYPE: return #NAME;
+  STRUCT_LIST(MAKE_STRUCT_CASE)
+#undef MAKE_STRUCT_CASE
+    default: return "UNKNOWN";
   }
-  UNREACHABLE();
-  return "UNKNOWN";  // Keep the compiler happy.
 }
 
 
@@ -557,8 +596,8 @@ void Map::MapPrint(FILE* out) {
   }
   PrintF(out, " - back pointer: ");
   GetBackPointer()->ShortPrint(out);
-  PrintF(out, "\n - instance descriptors %s#%i: ",
-         owns_descriptors() ? "(own) " : "",
+  PrintF(out, "\n - instance descriptors %i #%i: ",
+         owns_descriptors(),
          NumberOfOwnDescriptors());
   instance_descriptors()->ShortPrint(out);
   if (HasTransitionArray()) {
@@ -627,23 +666,6 @@ void FixedDoubleArray::FixedDoubleArrayPrint(FILE* out) {
       PrintF(out, "\n  [%d]: <the hole>", i);
     } else {
       PrintF(out, "\n  [%d]: %g", i, get_scalar(i));
-    }
-  }
-  PrintF(out, "\n");
-}
-
-
-void ConstantPoolArray::ConstantPoolArrayPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "ConstantPoolArray");
-  PrintF(out, " - length: %d", length());
-  for (int i = 0; i < length(); i++) {
-    if (i < first_ptr_index()) {
-      PrintF(out, "\n  [%d]: double: %g", i, get_int64_entry_as_double(i));
-    } else if (i < first_int32_index()) {
-      PrintF(out, "\n  [%d]: pointer: %p", i,
-             reinterpret_cast<void*>(get_ptr_entry(i)));
-    } else {
-      PrintF(out, "\n  [%d]: int32: %d", i, get_int32_entry(i));
     }
   }
   PrintF(out, "\n");
@@ -728,10 +750,9 @@ static const char* const weekdays[] = {
   "???", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 };
 
-
 void JSDate::JSDatePrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSDate");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - value = ");
   value()->Print(out);
   if (!year()->IsSmi()) {
@@ -751,7 +772,7 @@ void JSDate::JSDatePrint(FILE* out) {
 
 void JSProxy::JSProxyPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSProxy");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - handler = ");
   handler()->Print(out);
   PrintF(out, " - hash = ");
@@ -762,7 +783,7 @@ void JSProxy::JSProxyPrint(FILE* out) {
 
 void JSFunctionProxy::JSFunctionProxyPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSFunctionProxy");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - handler = ");
   handler()->Print(out);
   PrintF(out, " - call_trap = ");
@@ -773,36 +794,9 @@ void JSFunctionProxy::JSFunctionProxyPrint(FILE* out) {
 }
 
 
-void JSSet::JSSetPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "JSSet");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - table = ");
-  table()->ShortPrint(out);
-  PrintF(out, "\n");
-}
-
-
-void JSMap::JSMapPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "JSMap");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - table = ");
-  table()->ShortPrint(out);
-  PrintF(out, "\n");
-}
-
-
 void JSWeakMap::JSWeakMapPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSWeakMap");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - table = ");
-  table()->ShortPrint(out);
-  PrintF(out, "\n");
-}
-
-
-void JSWeakSet::JSWeakSetPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "JSWeakSet");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - table = ");
   table()->ShortPrint(out);
   PrintF(out, "\n");
@@ -811,8 +805,8 @@ void JSWeakSet::JSWeakSetPrint(FILE* out) {
 
 void JSArrayBuffer::JSArrayBufferPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSArrayBuffer");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - backing_store = %p\n", backing_store());
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - backing_store = -0x%p\n", backing_store());
   PrintF(out, " - byte_length = ");
   byte_length()->ShortPrint(out);
   PrintF(out, "\n");
@@ -821,36 +815,23 @@ void JSArrayBuffer::JSArrayBufferPrint(FILE* out) {
 
 void JSTypedArray::JSTypedArrayPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSTypedArray");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - buffer =");
   buffer()->ShortPrint(out);
   PrintF(out, "\n - byte_offset = ");
   byte_offset()->ShortPrint(out);
   PrintF(out, "\n - byte_length = ");
   byte_length()->ShortPrint(out);
-  PrintF(out, "\n - length = ");
+  PrintF(out, " - length = ");
   length()->ShortPrint(out);
   PrintF("\n");
   PrintElements(out);
 }
 
 
-void JSDataView::JSDataViewPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "JSDataView");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - buffer =");
-  buffer()->ShortPrint(out);
-  PrintF(out, "\n - byte_offset = ");
-  byte_offset()->ShortPrint(out);
-  PrintF(out, "\n - byte_length = ");
-  byte_length()->ShortPrint(out);
-  PrintF("\n");
-}
-
-
 void JSFunction::JSFunctionPrint(FILE* out) {
   HeapObject::PrintHeader(out, "Function");
-  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - initial_map = ");
   if (has_initial_map()) {
     initial_map()->ShortPrint(out);
@@ -860,7 +841,7 @@ void JSFunction::JSFunctionPrint(FILE* out) {
   PrintF(out, "\n   - name = ");
   shared()->name()->Print(out);
   PrintF(out, "\n - context = ");
-  context()->ShortPrint(out);
+  unchecked_context()->ShortPrint(out);
   PrintF(out, "\n - literals = ");
   literals()->ShortPrint(out);
   PrintF(out, "\n - code = ");
@@ -904,8 +885,10 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(FILE* out) {
   PrintF(out, "\n - debug info = ");
   debug_info()->ShortPrint(out);
   PrintF(out, "\n - length = %d", length());
-  PrintF(out, "\n - optimized_code_map = ");
-  optimized_code_map()->ShortPrint(out);
+  PrintF(out, "\n - has_only_simple_this_property_assignments = %d",
+         has_only_simple_this_property_assignments());
+  PrintF(out, "\n - this_property_assignments = ");
+  this_property_assignments()->ShortPrint(out);
   PrintF(out, "\n");
 }
 
@@ -934,13 +917,8 @@ void JSBuiltinsObject::JSBuiltinsObjectPrint(FILE* out) {
 }
 
 
-void Cell::CellPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "Cell");
-}
-
-
-void PropertyCell::PropertyCellPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "PropertyCell");
+void JSGlobalPropertyCell::JSGlobalPropertyCellPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "JSGlobalPropertyCell");
 }
 
 
@@ -992,21 +970,12 @@ void DeclaredAccessorDescriptor::DeclaredAccessorDescriptorPrint(FILE* out) {
 }
 
 
-void Box::BoxPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "Box");
-  PrintF(out, "\n - value: ");
-  value()->ShortPrint(out);
-}
-
-
 void AccessorPair::AccessorPairPrint(FILE* out) {
   HeapObject::PrintHeader(out, "AccessorPair");
   PrintF(out, "\n - getter: ");
   getter()->ShortPrint(out);
   PrintF(out, "\n - setter: ");
   setter()->ShortPrint(out);
-  PrintF(out, "\n - flag: ");
-  access_flags()->ShortPrint(out);
 }
 
 
@@ -1090,8 +1059,6 @@ void ObjectTemplateInfo::ObjectTemplateInfoPrint(FILE* out) {
   tag()->ShortPrint(out);
   PrintF(out, "\n - property_list: ");
   property_list()->ShortPrint(out);
-  PrintF(out, "\n - property_accessors: ");
-  property_accessors()->ShortPrint(out);
   PrintF(out, "\n - constructor: ");
   constructor()->ShortPrint(out);
   PrintF(out, "\n - internal_field_count: ");
@@ -1116,17 +1083,11 @@ void TypeSwitchInfo::TypeSwitchInfoPrint(FILE* out) {
 }
 
 
-void AllocationSite::AllocationSitePrint(FILE* out) {
-  HeapObject::PrintHeader(out, "AllocationSite");
-  PrintF(out, " - weak_next: ");
-  weak_next()->ShortPrint(out);
-  PrintF(out, "\n - dependent code: ");
-  dependent_code()->ShortPrint(out);
-  PrintF(out, "\n - nested site: ");
-  nested_site()->ShortPrint(out);
-  PrintF(out, "\n - transition_info: ");
-  if (transition_info()->IsCell()) {
-    Cell* cell = Cell::cast(transition_info());
+void AllocationSiteInfo::AllocationSiteInfoPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "AllocationSiteInfo");
+  PrintF(out, " - payload: ");
+  if (payload()->IsJSGlobalPropertyCell()) {
+    JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(payload());
     Object* cell_contents = cell->value();
     if (cell_contents->IsSmi()) {
       ElementsKind kind = static_cast<ElementsKind>(
@@ -1136,27 +1097,16 @@ void AllocationSite::AllocationSitePrint(FILE* out) {
       PrintF(out, "\n");
       return;
     }
-  } else if (transition_info()->IsJSArray()) {
+  } else if (payload()->IsJSArray()) {
     PrintF(out, "Array literal ");
-    transition_info()->ShortPrint(out);
+    payload()->ShortPrint(out);
     PrintF(out, "\n");
     return;
   }
 
-  PrintF(out, "unknown transition_info");
-  transition_info()->ShortPrint(out);
+  PrintF(out, "unknown payload ");
+  payload()->ShortPrint(out);
   PrintF(out, "\n");
-}
-
-
-void AllocationMemento::AllocationMementoPrint(FILE* out) {
-  HeapObject::PrintHeader(out, "AllocationMemento");
-  PrintF(out, " - allocation site: ");
-  if (IsValid()) {
-    GetAllocationSite()->Print();
-  } else {
-    PrintF(out, "<invalid>\n");
-  }
 }
 
 
@@ -1180,7 +1130,8 @@ void Script::ScriptPrint(FILE* out) {
   context_data()->ShortPrint(out);
   PrintF(out, "\n - wrapper: ");
   wrapper()->ShortPrint(out);
-  PrintF(out, "\n - compilation type: %d", compilation_type());
+  PrintF(out, "\n - compilation type: ");
+  compilation_type()->ShortPrint(out);
   PrintF(out, "\n - line ends: ");
   line_ends()->ShortPrint(out);
   PrintF(out, "\n - eval from shared: ");
@@ -1239,8 +1190,8 @@ void TransitionArray::PrintTransitions(FILE* out) {
         PrintF(out, " (transition to field)\n");
         break;
       }
-      case CONSTANT:
-        PrintF(out, " (transition to constant)\n");
+      case CONSTANT_FUNCTION:
+        PrintF(out, " (transition to constant function)\n");
         break;
       case CALLBACKS:
         PrintF(out, " (transition to callback)\n");

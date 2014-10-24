@@ -69,7 +69,7 @@ if (process.argv[2] === 'child') {
   var sendMessages = function () {
     var wait = 0;
     var send = 0;
-    var total = 100;
+    var total = 10000;
 
     var timer = setInterval(function () {
       send += 1;

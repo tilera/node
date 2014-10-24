@@ -20,15 +20,24 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+#include "util.h"
+
 #ifdef HAVE_DTRACE
 #include "node_dtrace.h"
-#include "node_provider.h"
 #include <string.h>
+#include "node_provider.h"
 #elif HAVE_ETW
 #include "node_dtrace.h"
 #include <string.h>
 #include "node_win32_etw_provider.h"
 #include "node_win32_etw_provider-inl.h"
+#elif HAVE_SYSTEMTAP
+#include <string.h>
+#include <node.h>
+#include <v8.h>
+#include <sys/sdt.h>
+#include "node_systemtap.h"
+#include "node_dtrace.h"
 #else
 #define NODE_HTTP_SERVER_REQUEST(arg0, arg1)
 #define NODE_HTTP_SERVER_REQUEST_ENABLED() (0)
@@ -42,9 +51,9 @@
 #define NODE_NET_SERVER_CONNECTION_ENABLED() (0)
 #define NODE_NET_STREAM_END(arg0)
 #define NODE_NET_STREAM_END_ENABLED() (0)
-#define NODE_NET_SOCKET_READ(arg0, arg1)
+#define NODE_NET_SOCKET_READ(arg0, arg1, arg2, arg3, arg4)
 #define NODE_NET_SOCKET_READ_ENABLED() (0)
-#define NODE_NET_SOCKET_WRITE(arg0, arg1)
+#define NODE_NET_SOCKET_WRITE(arg0, arg1, arg2, arg3, arg4)
 #define NODE_NET_SOCKET_WRITE_ENABLED() (0)
 #define NODE_GC_START(arg0, arg1)
 #define NODE_GC_DONE(arg0, arg1)
@@ -52,50 +61,39 @@
 
 namespace node {
 
-using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::GCCallbackFlags;
-using v8::GCEpilogueCallback;
-using v8::GCPrologueCallback;
-using v8::GCType;
-using v8::Handle;
-using v8::HandleScope;
-using v8::Local;
-using v8::Object;
-using v8::String;
-using v8::Value;
+using namespace v8;
 
 #define SLURP_STRING(obj, member, valp) \
   if (!(obj)->IsObject()) { \
-    return ThrowError( \
-        "expected object for " #obj " to contain string member " #member); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "object for " #obj " to contain string member " #member)))); \
   } \
-  String::Utf8Value _##member(obj->Get(OneByteString(node_isolate, #member))); \
+  node::Utf8Value _##member(obj->Get(String::New(#member))); \
   if ((*(const char **)valp = *_##member) == NULL) \
     *(const char **)valp = "<unknown>";
 
 #define SLURP_INT(obj, member, valp) \
   if (!(obj)->IsObject()) { \
-    return ThrowError( \
-      "expected object for " #obj " to contain integer member " #member); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "object for " #obj " to contain integer member " #member)))); \
   } \
-  *valp = obj->Get(OneByteString(node_isolate, #member))->ToInteger()->Value();
+  *valp = obj->Get(String::New(#member))->ToInteger()->Value();
 
 #define SLURP_OBJECT(obj, member, valp) \
   if (!(obj)->IsObject()) { \
-    return ThrowError( \
-      "expected object for " #obj " to contain object member " #member); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "object for " #obj " to contain object member " #member)))); \
   } \
-  *valp = Local<Object>::Cast(obj->Get(OneByteString(node_isolate, #member)));
+  *valp = Local<Object>::Cast(obj->Get(String::New(#member)));
 
 #define SLURP_CONNECTION(arg, conn) \
   if (!(arg)->IsObject()) { \
-    return ThrowError( \
-      "expected argument " #arg " to be a connection object"); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "argument " #arg " to be a connection object")))); \
   } \
   node_dtrace_connection_t conn; \
   Local<Object> _##conn = Local<Object>::Cast(arg); \
-  Local<Value> _handle = (_##conn)->Get(FIXED_ONE_BYTE_STRING(node_isolate, "_handle")); \
+  Local<Value> _handle = (_##conn)->Get(String::New("_handle")); \
   if (_handle->IsObject()) { \
     SLURP_INT(_handle.As<Object>(), fd, &conn.fd); \
   } else { \
@@ -107,8 +105,8 @@ using v8::Value;
 
 #define SLURP_CONNECTION_HTTP_CLIENT(arg, conn) \
   if (!(arg)->IsObject()) { \
-    return ThrowError( \
-      "expected argument " #arg " to be a connection object"); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "argument " #arg " to be a connection object")))); \
   } \
   node_dtrace_connection_t conn; \
   Local<Object> _##conn = Local<Object>::Cast(arg); \
@@ -119,12 +117,12 @@ using v8::Value;
 
 #define SLURP_CONNECTION_HTTP_CLIENT_RESPONSE(arg0, arg1, conn) \
   if (!(arg0)->IsObject()) { \
-    return ThrowError( \
-      "expected argument " #arg0 " to be a connection object"); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "argument " #arg0 " to be a connection object")))); \
   } \
   if (!(arg1)->IsObject()) { \
-    return ThrowError( \
-      "expected argument " #arg1 " to be a connection object"); \
+    return (ThrowException(Exception::Error(String::New("expected " \
+      "argument " #arg1 " to be a connection object")))); \
   } \
   node_dtrace_connection_t conn; \
   Local<Object> _##conn = Local<Object>::Cast(arg0); \
@@ -135,61 +133,101 @@ using v8::Value;
   SLURP_INT(_##conn, port, &conn.port);
 
 
-void DTRACE_NET_SERVER_CONNECTION(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_NET_SERVER_CONNECTION(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_NET_SERVER_CONNECTION_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+
+  HandleScope scope;
+
   SLURP_CONNECTION(args[0], conn);
+#ifdef HAVE_SYSTEMTAP
+  NODE_NET_SERVER_CONNECTION(conn.fd, conn.remote, conn.port, \
+                             conn.buffered);
+#else
   NODE_NET_SERVER_CONNECTION(&conn, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
-
-void DTRACE_NET_STREAM_END(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_NET_STREAM_END(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_NET_STREAM_END_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+
+  HandleScope scope;
+
   SLURP_CONNECTION(args[0], conn);
+#ifdef HAVE_SYSTEMTAP
+  NODE_NET_STREAM_END(conn.fd, conn.remote, conn.port, conn.buffered);
+#else
   NODE_NET_STREAM_END(&conn, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
-
-void DTRACE_NET_SOCKET_READ(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_NET_SOCKET_READ(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_NET_SOCKET_READ_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+
+  HandleScope scope;
+
   SLURP_CONNECTION(args[0], conn);
 
+#ifdef HAVE_SYSTEMTAP
+  NODE_NET_SOCKET_READ(conn.fd, conn.remote, conn.port, conn.buffered);
+#else
   if (!args[1]->IsNumber()) {
-    return ThrowError("expected argument 1 to be number of bytes");
+    return (ThrowException(Exception::Error(String::New("expected " 
+      "argument 1 to be number of bytes"))));
   }
-
   int nbytes = args[1]->Int32Value();
   NODE_NET_SOCKET_READ(&conn, nbytes, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
-
-void DTRACE_NET_SOCKET_WRITE(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_NET_SOCKET_WRITE(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_NET_SOCKET_WRITE_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+
+  HandleScope scope;
+
   SLURP_CONNECTION(args[0], conn);
 
+#ifdef HAVE_SYSTEMTAP
+  NODE_NET_SOCKET_WRITE(conn.fd, conn.remote, conn.port, conn.buffered);
+#else
   if (!args[1]->IsNumber()) {
-    return ThrowError("expected argument 1 to be number of bytes");
+    return (ThrowException(Exception::Error(String::New("expected " 
+      "argument 1 to be number of bytes"))));
   }
-
   int nbytes = args[1]->Int32Value();
   NODE_NET_SOCKET_WRITE(&conn, nbytes, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
-
-void DTRACE_HTTP_SERVER_REQUEST(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_HTTP_SERVER_REQUEST(const Arguments& args) {
   node_dtrace_http_server_request_t req;
 
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_HTTP_SERVER_REQUEST_ENABLED())
-    return;
+    return Undefined();
+#endif
 
-  HandleScope scope(node_isolate);
+  HandleScope scope;
+
   Local<Object> arg0 = Local<Object>::Cast(args[0]);
   Local<Object> headers;
 
@@ -197,42 +235,59 @@ void DTRACE_HTTP_SERVER_REQUEST(const FunctionCallbackInfo<Value>& args) {
   req._un.version = 1;
   SLURP_STRING(arg0, url, &req.url);
   SLURP_STRING(arg0, method, &req.method);
+
   SLURP_OBJECT(arg0, headers, &headers);
 
-  if (!(headers)->IsObject()) {
-    return ThrowError(
-      "expected object for request to contain string member headers");
-  }
+  if (!(headers)->IsObject())
+    return (ThrowException(Exception::Error(String::New("expected "
+      "object for request to contain string member headers"))));
 
-  Local<Value> strfwdfor = headers->Get(FIXED_ONE_BYTE_STRING(node_isolate, "x-forwarded-for"));
-  String::Utf8Value fwdfor(strfwdfor);
+  Local<Value> strfwdfor = headers->Get(String::New("x-forwarded-for"));
+  node::Utf8Value fwdfor(strfwdfor);
 
   if (!strfwdfor->IsString() || (req.forwardedFor = *fwdfor) == NULL)
     req.forwardedFor = const_cast<char*>("");
 
   SLURP_CONNECTION(args[1], conn);
+
+#ifdef HAVE_SYSTEMTAP
+  NODE_HTTP_SERVER_REQUEST(&req, conn.fd, conn.remote, conn.port, \
+                           conn.buffered);
+#else
   NODE_HTTP_SERVER_REQUEST(&req, &conn, conn.remote, conn.port, req.method, \
                            req.url, conn.fd);
+#endif
+  return Undefined();
 }
 
-
-void DTRACE_HTTP_SERVER_RESPONSE(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_HTTP_SERVER_RESPONSE(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_HTTP_SERVER_RESPONSE_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+
+  HandleScope scope;
+
   SLURP_CONNECTION(args[0], conn);
+#ifdef HAVE_SYSTEMTAP
+  NODE_HTTP_SERVER_RESPONSE(conn.fd, conn.remote, conn.port, conn.buffered);
+#else
   NODE_HTTP_SERVER_RESPONSE(&conn, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
-
-void DTRACE_HTTP_CLIENT_REQUEST(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_HTTP_CLIENT_REQUEST(const Arguments& args) {
   node_dtrace_http_client_request_t req;
   char *header;
 
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_HTTP_CLIENT_REQUEST_ENABLED())
-    return;
+    return Undefined();
+#endif
 
-  HandleScope scope(node_isolate);
+  HandleScope scope;
 
   /*
    * For the method and URL, we're going to dig them out of the header.  This
@@ -259,22 +314,41 @@ void DTRACE_HTTP_CLIENT_REQUEST(const FunctionCallbackInfo<Value>& args) {
   *header = '\0';
 
   SLURP_CONNECTION_HTTP_CLIENT(args[1], conn);
+#ifdef HAVE_SYSTEMTAP
+  NODE_HTTP_CLIENT_REQUEST(&req, conn.fd, conn.remote, conn.port, \
+                           conn.buffered);
+#else
   NODE_HTTP_CLIENT_REQUEST(&req, &conn, conn.remote, conn.port, req.method, \
                            req.url, conn.fd);
+#endif
+  return Undefined();
 }
 
-
-void DTRACE_HTTP_CLIENT_RESPONSE(const FunctionCallbackInfo<Value>& args) {
+Handle<Value> DTRACE_HTTP_CLIENT_RESPONSE(const Arguments& args) {
+#ifndef HAVE_SYSTEMTAP
   if (!NODE_HTTP_CLIENT_RESPONSE_ENABLED())
-    return;
-  HandleScope scope(node_isolate);
+    return Undefined();
+#endif
+  HandleScope scope;
+
   SLURP_CONNECTION_HTTP_CLIENT_RESPONSE(args[0], args[1], conn);
+#ifdef HAVE_SYSTEMTAP
+  NODE_HTTP_CLIENT_RESPONSE(conn.fd, conn.remote, conn.port, conn.buffered);
+#else
   NODE_HTTP_CLIENT_RESPONSE(&conn, conn.remote, conn.port, conn.fd);
+#endif
+
+  return Undefined();
 }
 
+#define NODE_PROBE(name) #name, name, Persistent<FunctionTemplate>()
 
-static int dtrace_gc_start(GCType type, GCCallbackFlags flags) {
+int dtrace_gc_start(GCType type, GCCallbackFlags flags) {
+#ifdef HAVE_SYSTEMTAP
+  NODE_GC_START();
+#else
   NODE_GC_START(type, flags);
+#endif
   /*
    * We avoid the tail-call elimination of the USDT probe (which screws up
    * args) by forcing a return of 0.
@@ -282,21 +356,21 @@ static int dtrace_gc_start(GCType type, GCCallbackFlags flags) {
   return 0;
 }
 
-
-static int dtrace_gc_done(GCType type, GCCallbackFlags flags) {
+int dtrace_gc_done(GCType type, GCCallbackFlags flags) {
+#ifdef HAVE_SYSTEMTAP
+  NODE_GC_DONE();
+#else
   NODE_GC_DONE(type, flags);
+#endif
   return 0;
 }
 
-
 void InitDTrace(Handle<Object> target) {
-  HandleScope scope(node_isolate);
-
   static struct {
     const char *name;
-    void (*func)(const FunctionCallbackInfo<Value>&);
+    Handle<Value> (*func)(const Arguments&);
+    Persistent<FunctionTemplate> templ;
   } tab[] = {
-#define NODE_PROBE(name) #name, name
     { NODE_PROBE(DTRACE_NET_SERVER_CONNECTION) },
     { NODE_PROBE(DTRACE_NET_STREAM_END) },
     { NODE_PROBE(DTRACE_NET_SOCKET_READ) },
@@ -305,23 +379,22 @@ void InitDTrace(Handle<Object> target) {
     { NODE_PROBE(DTRACE_HTTP_SERVER_RESPONSE) },
     { NODE_PROBE(DTRACE_HTTP_CLIENT_REQUEST) },
     { NODE_PROBE(DTRACE_HTTP_CLIENT_RESPONSE) }
-#undef NODE_PROBE
   };
 
   for (unsigned int i = 0; i < ARRAY_SIZE(tab); i++) {
-    Local<String> key = OneByteString(node_isolate, tab[i].name);
-    Local<Value> val = FunctionTemplate::New(tab[i].func)->GetFunction();
-    target->Set(key, val);
+    tab[i].templ = Persistent<FunctionTemplate>::New(
+        FunctionTemplate::New(tab[i].func));
+    target->Set(String::NewSymbol(tab[i].name), tab[i].templ->GetFunction());
   }
 
 #ifdef HAVE_ETW
   init_etw();
 #endif
 
-#if defined HAVE_DTRACE || defined HAVE_ETW
+#if defined HAVE_DTRACE || defined HAVE_ETW || defined HAVE_SYSTEMTAP
   v8::V8::AddGCPrologueCallback((GCPrologueCallback)dtrace_gc_start);
   v8::V8::AddGCEpilogueCallback((GCEpilogueCallback)dtrace_gc_done);
 #endif
 }
 
-}  // namespace node
+}

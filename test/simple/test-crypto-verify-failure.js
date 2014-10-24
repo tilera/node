@@ -47,12 +47,10 @@ var options = {
 var canSend = true;
 
 var server = tls.Server(options, function(socket) {
-  setImmediate(function() {
+  process.nextTick(function() {
       console.log('sending');
+      socket.destroy();
       verify();
-      setImmediate(function() {
-        socket.destroy();
-      });
   });
 });
 

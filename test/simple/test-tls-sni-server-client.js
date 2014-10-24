@@ -66,21 +66,14 @@ var clientsOptions = [{
   ca: [loadPEM('ca1-cert')],
   servername: 'a.example.com',
   rejectUnauthorized: false
-}, {
+},{
   port: serverPort,
   key: loadPEM('agent2-key'),
   cert: loadPEM('agent2-cert'),
   ca: [loadPEM('ca2-cert')],
   servername: 'b.test.com',
   rejectUnauthorized: false
-}, {
-  port: serverPort,
-  key: loadPEM('agent2-key'),
-  cert: loadPEM('agent2-cert'),
-  ca: [loadPEM('ca2-cert')],
-  servername: 'a.b.test.com',
-  rejectUnauthorized: false
-}, {
+},{
   port: serverPort,
   key: loadPEM('agent3-key'),
   cert: loadPEM('agent3-cert'),
@@ -102,29 +95,28 @@ server.addContext('*.test.com', SNIContexts['asterisk.test.com']);
 server.listen(serverPort, startTest);
 
 function startTest() {
-  var i = 0;
-  function start() {
-    // No options left
-    if (i === clientsOptions.length)
-      return server.close();
-
-    var options = clientsOptions[i++];
+  function connectClient(options, callback) {
     var client = tls.connect(options, function() {
       clientResults.push(
         client.authorizationError &&
         /Hostname\/IP doesn't/.test(client.authorizationError));
       client.destroy();
 
-      // Continue
-      start();
+      callback();
     });
   };
 
-  start();
+  connectClient(clientsOptions[0], function() {
+    connectClient(clientsOptions[1], function() {
+      connectClient(clientsOptions[2], function() {
+        server.close();
+      });
+    });
+  });
 }
 
 process.on('exit', function() {
   assert.deepEqual(serverResults, ['a.example.com', 'b.test.com',
-                                   'a.b.test.com', 'c.wrong.com']);
-  assert.deepEqual(clientResults, [true, true, false, false]);
+                                   'c.wrong.com']);
+  assert.deepEqual(clientResults, [true, true, false]);
 });
