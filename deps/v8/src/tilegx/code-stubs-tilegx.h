@@ -405,14 +405,16 @@ class FloatingPointHelper : public AllStatic {
   // Floating point value in the 32-bit integer range that are not exact integer
   // won't be converted.
   // scratch3 is not used when FPU is supported.
+  // skip_load is used by Crankshaft to do the test/convert without the load.
   static void LoadNumberAsInt32(MacroAssembler* masm,
-                                Register object,
+                                Register object_or_value,
                                 Register dst,
                                 Register heap_number_map,
                                 Register scratch1,
                                 Register scratch2,
                                 Register scratch3,
-                                Label* not_int32);
+                                Label* not_int32,
+				bool skip_load = false);
 
   // Generates code to call a C function to do a double operation using core
   // registers. (Used when FPU is not supported.)

@@ -102,11 +102,13 @@ class MacroAssembler: public Assembler {
   // Patch the relocated value (lui/ori pair).
   void PatchRelocatedValue(Register li_location,
                            Register scratch,
+			   Register scratch2,
                            Register new_value);
   // Get the relocatad value (loaded data) from the lui/ori pair.
   void GetRelocatedValue(Register li_location,
                          Register value,
-                         Register scratch);
+                         Register scratch,
+			 Register scratch2);
 
   // Arguments macros.
 #define COND_TYPED_ARGS Condition cond, Register r1, const Operand& r2
@@ -170,7 +172,7 @@ class MacroAssembler: public Assembler {
   void ClampUint8(Register output_reg, Register input_reg);
 
   void ClampDoubleToUint8(Register result_reg,
-                          Register input_reg,
+                          DoubleRegister input_reg,
                           Register temp_reg,
                           Register temp_reg1,
                           Register temp_reg2,
@@ -340,18 +342,22 @@ class MacroAssembler: public Assembler {
 
   void SmiUntag(Register reg) {
     sra(reg, reg, kSmiTagSize + kSmiShiftSize);
+    //srl(reg, reg, kSmiTagSize + kSmiShiftSize);
   }
 
   void SmiUntag(Register dst, Register src) {
     sra(dst, src, kSmiTagSize + kSmiShiftSize);
+    //srl(dst, src, kSmiTagSize + kSmiShiftSize);
   }
 
-  void SmiUntag32(Register reg) {
+  void SmiUntagUnsigned(Register reg) {
     srl(reg, reg, kSmiTagSize + kSmiShiftSize);
+    //sra(reg, reg, kSmiTagSize + kSmiShiftSize);
   }
 
-  void SmiUntag32(Register dst, Register src) {
+  void SmiUntagUnsigned(Register dst, Register src) {
     srl(dst, src, kSmiTagSize + kSmiShiftSize);
+    //sra(dst, src, kSmiTagSize + kSmiShiftSize); 
   }
 
   // Helper for throwing exceptions.  Compute a handler address and jump to
@@ -492,6 +498,14 @@ class MacroAssembler: public Assembler {
                  int line = 0, LiFlags mode = CONSTANT_SIZE) {
     li(dst, Operand(value), line, mode);
   }
+  inline void li(DoubleRegister rd, int64_t j, int line = 0, LiFlags mode = CONSTANT_SIZE) {
+    Register srd = Register::from_code(rd.code());
+    li(srd, Operand(j), line, mode);
+  }
+  void li(DoubleRegister rd, Operand j, int line = 0, LiFlags mode = CONSTANT_SIZE) {
+    Register rdd = Register::from_code(rd.code());
+    li(rdd, j, line, mode);
+  }
 
   // Push multiple registers on the stack.
   // Registers are saved in numerical order, with higher numbered registers
@@ -546,6 +560,24 @@ class MacroAssembler: public Assembler {
               Register rs,
               Heap::RootListIndex index);
 
+  void Branch(Label* L,
+              Condition cond,
+              DoubleRegister rs,
+              Heap::RootListIndex index) {
+    Branch(L, cond, Register::from_code(rs.code()), index); }
+
+  void Branch(Label* L,
+	      Condition cond,
+	      DoubleRegister rs,
+	      Operand op) {
+    Branch(L, cond, Register::from_code(rs.code()), op); }
+
+  void BranchF(Label* target,
+	       Label* nan,
+	       Condition cc,
+	       DoubleRegister cmp1,
+	       DoubleRegister cmp2);
+
 #undef COND_ARGS
 
   void Call(Label* target);
@@ -562,10 +594,21 @@ class MacroAssembler: public Assembler {
     st(src, sp);
   }
 
+  void push(DoubleRegister src) {
+    addi(sp, sp, -kPointerSize);
+    st(src, sp);
+  }
+
   void pop(Register dst) {
     ld(dst, sp);
     addi(sp, sp, kPointerSize);
   }
+
+  void pop(DoubleRegister dst) {
+    ld(dst, sp);
+    addi(sp, sp, kPointerSize);
+  }
+
 
   // Pop two registers. Pops rightmost register first (from lower address).
   void Pop(Register src1, Register src2) {
@@ -638,6 +681,16 @@ class MacroAssembler: public Assembler {
   void EmitOutOfInt32RangeTruncate(Register result,
                                    Register input,
                                    Register scratch);
+
+  // Convert Double to Int64, rounding to zero
+  void ConvertToInt64(Register source,
+                      Register dest,
+                      Register scratch1,
+                      Register scratch2,
+                      Register scratch3,
+                      Register scratch4,
+		      Register scratch5,
+                      bool need_load = true);
 
   // Check if the map of an object is equal to a specified map and branch to a
   // specified target if equal. Skip the smi check if not required (object is
@@ -886,17 +939,51 @@ class MacroAssembler: public Assembler {
   // Usage: first call the appropriate arithmetic function, then call one of the
   // jump functions with the overflow_dst register as the second parameter.
 
+  void AddAndCheckForOverflow(Register dst,
+                              Register left,
+                              Register right,
+                              Register overflow_dst,
+                              Register scratch,
+                              bool is_32bit);
   void AdduAndCheckForOverflow(Register dst,
                                Register left,
                                Register right,
                                Register overflow_dst,
-                               Register scratch = at);
+                               Register scratch = at) {
+    AddAndCheckForOverflow(dst, left, right,
+			   overflow_dst, scratch, false);
+  }
+  void AddiAndCheckForOverflow(Register dst,
+                               Register left,
+                               Register right,
+                               Register overflow_dst,
+                               Register scratch = at) {
+    AddAndCheckForOverflow(dst, left, right,
+                           overflow_dst, scratch, true);
+  }
 
+  void SubAndCheckForOverflow(Register dst,
+			      Register left,
+			      Register right,
+			      Register overflow_dst,
+			      Register scratch,
+                              bool is_32bit);
   void SubuAndCheckForOverflow(Register dst,
                                Register left,
                                Register right,
                                Register overflow_dst,
-                               Register scratch = at);
+                               Register scratch = at) {
+    SubAndCheckForOverflow(dst, left, right,
+			   overflow_dst, scratch, false);
+  }
+  void SubiAndCheckForOverflow(Register dst,
+                               Register left,
+                               Register right,
+                               Register overflow_dst,
+                               Register scratch = at) {
+    SubAndCheckForOverflow(dst, left, right,
+                           overflow_dst, scratch, true);
+  }
 
   void BranchOnOverflow(Label* label,
                         Register overflow_check) {
@@ -982,6 +1069,7 @@ class MacroAssembler: public Assembler {
                 Heap::RootListIndex index,
                 Condition cond, Register src1, const Operand& src2);
 
+
   // Store an object to the root table.
   void StoreRoot(Register source,
                  Heap::RootListIndex index);
@@ -991,7 +1079,15 @@ class MacroAssembler: public Assembler {
 
   void LoadHeapObject(Register dst, Handle<HeapObject> object);
 
-  void LoadObject(Register result, Handle<Object> object) { UNREACHABLE(); }
+  void LoadObject(Register result, Handle<Object> object) {
+    ALLOW_HANDLE_DEREF(isolate(), "heap object check");
+    if (object->IsHeapObject()) {
+      LoadHeapObject(result, Handle<HeapObject>::cast(object));
+    } else {
+      li(result, Operand(object));
+    }
+  }
+
 
   // Get the actual activation frame alignment for target environment.
   static int ActivationFrameAlignment();

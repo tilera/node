@@ -777,6 +777,15 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference address_of_has_pending_message(Isolate* isolate);
   static ExternalReference address_of_pending_message_script(Isolate* isolate);
 
+#ifdef __tilegx__
+  static ExternalReference sqrt_double(Isolate* isolate);
+  static ExternalReference exp_double(Isolate* isolate);
+  static ExternalReference cvt_truncate_double_to_int(Isolate* isolate);
+  static ExternalReference cvt_round_double_to_int(Isolate* isolate);
+  static ExternalReference div_two_ints(Isolate* isolate);
+  static ExternalReference mod_two_ints(Isolate* isolate);
+#endif
+
   // Static variables containing common double constants.
   static ExternalReference address_of_min_int();
   static ExternalReference address_of_one_half();

@@ -136,6 +136,8 @@ class LCodeGen BASE_EMBEDDED {
 
   void DoDeferredNumberTagD(LNumberTagD* instr);
 
+  void DoDeferredNumberTagI(LInstruction* instr,
+                            LOperand* value);
   void DoDeferredNumberTagU(LInstruction* instr,
                             LOperand* value);
 
@@ -199,6 +201,13 @@ class LCodeGen BASE_EMBEDDED {
   HGraph* graph() const { return chunk()->graph(); }
   Register scratch0() { return kLithiumScratchReg; }
   Register scratch1() { return kLithiumScratchReg2; }
+  Register scratch2() { return kLithiumScratchReg3; }
+  Register scratch3() { return kLithiumScratchReg4; }
+
+  DoubleRegister double_scratch0() { return kLithiumScratchRegD; }
+  DoubleRegister double_scratch1() { return kLithiumScratchRegD2; }
+  DoubleRegister double_scratch2() { return kLithiumScratchRegD3; }
+  DoubleRegister double_scratch3() { return kLithiumScratchRegD4; }
 
   int GetNextEmittedBlock() const;
   LInstruction* GetNextInstruction();
@@ -325,6 +334,11 @@ class LCodeGen BASE_EMBEDDED {
                   Condition cc,
                   Register src1,
                   const Operand& src2);
+  void EmitBranchF(int left_block, 
+		   int right_block,
+		   Condition cc, 
+		   DoubleRegister src1, 
+		   DoubleRegister src2);
 
   // Emits optimized code for typeof x == "y".  Modifies input register.
   // Returns the condition on which a final split to

@@ -2436,10 +2436,16 @@ void HCompareIDAndBranch::InferRepresentation(HInferRepresentation* h_infer) {
       observed_input_representation(1).IsInteger32();
   bool inputs_are_not_doubles =
       !left_rep.IsDouble() && !right_rep.IsDouble();
-  // FIXME: Tile: THe condition below was "&&" rather than "||", which
-  // was causing Smi comparisons to be converted to floating point!
-  // Not clear to me why it isn't just if (inputs_are_not_doubles).
-  if (observed_integers || inputs_are_not_doubles) {
+  // On Tilegx, void needless conversion to double if both operands are
+  // SMIs.
+#ifdef __tilegx__
+  bool observed_Smis =
+    observed_input_representation(0).IsSmi() &&
+    observed_input_representation(1).IsSmi();
+  if ((observed_integers && inputs_are_not_doubles) || observed_Smis) {
+#else
+    if (observed_integers && inputs_are_not_doubles) {
+#endif
     rep = Representation::Integer32();
   } else {
     rep = Representation::Double();

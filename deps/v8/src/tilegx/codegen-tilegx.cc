@@ -512,24 +512,6 @@ void SeqStringSetCharGenerator::Generate(MacroAssembler* masm,
   }
 }
 
-#if 0
-static MemOperand ExpConstant(int index, Register base) {
-  return MemOperand(base, index * kDoubleSize);
-}
-#endif
-
-
-void MathExpGenerator::EmitMathExp(MacroAssembler* masm,
-                                   DoubleRegister input,
-                                   DoubleRegister result,
-                                   DoubleRegister double_scratch1,
-                                   DoubleRegister double_scratch2,
-                                   Register temp1,
-                                   Register temp2,
-                                   Register temp3) {
-  UNREACHABLE();
-}
-
 
 // nop(CODE_AGE_MARKER_NOP)
 static const uint64_t kCodeAgePatchFirstInstruction = 0x3004339fd1483000L;

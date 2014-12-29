@@ -95,6 +95,7 @@ class LCodeGen;
   V(Deoptimize)                                 \
   V(DivI)                                       \
   V(DoubleToI)                                  \
+  V(DoubleToSmi)                                \
   V(DummyUse)                                   \
   V(ElementsKind)                               \
   V(FixedArrayBaseLength)                       \
@@ -111,6 +112,7 @@ class LCodeGen;
   V(InstanceSize)                               \
   V(InstructionGap)                             \
   V(Integer32ToDouble)                          \
+  V(Integer32ToSmi)                             \
   V(Uint32ToDouble)                             \
   V(InvokeFunction)                             \
   V(IsConstructCallAndBranch)                   \
@@ -146,7 +148,6 @@ class LCodeGen;
   V(MathTan)                                    \
   V(ModI)                                       \
   V(MulI)                                       \
-  V(MultiplyAddD)                               \
   V(NumberTagD)                                 \
   V(NumberTagI)                                 \
   V(NumberTagU)                                 \
@@ -638,24 +639,6 @@ class LMulI: public LTemplateInstruction<1, 2, 1> {
 
   DECLARE_CONCRETE_INSTRUCTION(MulI, "mul-i")
   DECLARE_HYDROGEN_ACCESSOR(Mul)
-};
-
-
-// Instruction for computing multiplier * multiplicand + addend.
-class LMultiplyAddD: public LTemplateInstruction<1, 3, 0> {
- public:
-  LMultiplyAddD(LOperand* addend, LOperand* multiplier,
-                LOperand* multiplicand) {
-    inputs_[0] = addend;
-    inputs_[1] = multiplier;
-    inputs_[2] = multiplicand;
-  }
-
-  LOperand* addend() { return inputs_[0]; }
-  LOperand* multiplier() { return inputs_[1]; }
-  LOperand* multiplicand() { return inputs_[2]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(MultiplyAddD, "multiply-add-d")
 };
 
 
@@ -1926,6 +1909,17 @@ class LInteger32ToDouble: public LTemplateInstruction<1, 1, 0> {
   DECLARE_CONCRETE_INSTRUCTION(Integer32ToDouble, "int32-to-double")
 };
 
+class LInteger32ToSmi: public LTemplateInstruction<1, 1, 0> {
+ public:
+  explicit LInteger32ToSmi(LOperand* value) {
+    inputs_[0] = value;
+  }
+
+  LOperand* value() { return inputs_[0]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(Integer32ToSmi, "int32-to-smi")
+  DECLARE_HYDROGEN_ACCESSOR(Change)
+};
 
 class LUint32ToDouble: public LTemplateInstruction<1, 1, 0> {
  public:
@@ -1977,6 +1971,25 @@ class LNumberTagD: public LTemplateInstruction<1, 1, 2> {
 
   DECLARE_CONCRETE_INSTRUCTION(NumberTagD, "number-tag-d")
   DECLARE_HYDROGEN_ACCESSOR(Change)
+};
+
+
+class LDoubleToSmi: public LTemplateInstruction<1, 1, 2> {
+ public:
+  LDoubleToSmi(LOperand* value, LOperand* temp, LOperand* temp2) {
+    inputs_[0] = value;
+    temps_[0] = temp;
+    temps_[1] = temp2;
+  }
+
+  LOperand* value() { return inputs_[0]; }
+  LOperand* temp() { return temps_[0]; }
+  LOperand* temp2() { return temps_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(DoubleToSmi, "double-to-smi")
+  DECLARE_HYDROGEN_ACCESSOR(UnaryOperation)
+
+  bool truncating() { return hydrogen()->CanTruncateToInt32(); }
 };
 
 
@@ -2668,8 +2681,6 @@ class LChunkBuilder BASE_EMBEDDED {
   HYDROGEN_CONCRETE_INSTRUCTION_LIST(DECLARE_DO)
 #undef DECLARE_DO
 
-  LInstruction* DoMultiplyAdd(HMul* mul, HValue* addend);
-
   LInstruction* DoMathFloor(HUnaryMathOperation* instr);
   LInstruction* DoMathRound(HUnaryMathOperation* instr);
   LInstruction* DoMathAbs(HUnaryMathOperation* instr);
@@ -2747,6 +2758,7 @@ class LChunkBuilder BASE_EMBEDDED {
   // Temporary operand that must be in a register.
   MUST_USE_RESULT LUnallocated* TempRegister();
   MUST_USE_RESULT LOperand* FixedTemp(Register reg);
+  MUST_USE_RESULT LOperand* FixedTemp(DoubleRegister reg);
 
   // Methods for setting up define-use relationships.
   // Return the same instruction that they are passed.

@@ -585,6 +585,10 @@ class FrameDescription {
     return OFFSET_OF(FrameDescription, pc_);
   }
 
+  static int fp_offset() {
+    return OFFSET_OF(FrameDescription, fp_);
+  }
+
   static int state_offset() {
     return OFFSET_OF(FrameDescription, state_);
   }

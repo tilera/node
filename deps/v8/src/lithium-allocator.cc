@@ -1815,6 +1815,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
     free_until_pos[cur_reg] = Min(free_until_pos[cur_reg], next_intersection);
   }
 
+#ifndef __tilegx__   // FIXME: Prevent only arg registers from being used
   UsePosition* hinted_use = current->FirstPosWithHint();
   if (hinted_use != NULL) {
     LOperand* hint = hinted_use->hint();
@@ -1837,6 +1838,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
       }
     }
   }
+#endif
 
   // Find the register which stays free for the longest time.
   int reg = 0;

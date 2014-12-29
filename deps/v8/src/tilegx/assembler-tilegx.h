@@ -75,7 +75,7 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
 
 #define MUL_LS_LS_X0                                                           \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
-      create_RRROpcodeExtension_X0(MUL_LU_LU_RRR_0_OPCODE_X0) | FNOP_X1
+      create_RRROpcodeExtension_X0(MUL_LS_LS_RRR_0_OPCODE_X0) | FNOP_X1
 
 #define MUL_HS_LS_X0                                                           \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
@@ -84,6 +84,18 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
 #define MUL_HS_HS_X0                                                           \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
       create_RRROpcodeExtension_X0(MUL_HS_HS_RRR_0_OPCODE_X0) | FNOP_X1
+
+#define MUL_HU_HU_X0                                                           \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
+    create_RRROpcodeExtension_X0(MUL_HU_HU_RRR_0_OPCODE_X0) | FNOP_X1
+
+#define MUL_HU_LU_X0                                                           \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
+    create_RRROpcodeExtension_X0(MUL_HU_LU_RRR_0_OPCODE_X0) | FNOP_X1
+
+#define MULA_HU_LU_X0                                                           \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
+    create_RRROpcodeExtension_X0(MULA_HU_LU_RRR_0_OPCODE_X0) | FNOP_X1
 
 #define FSINGLE_PACK1_X0                                                       \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
@@ -109,6 +121,14 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
 #define FDOUBLE_ADDSUB_X0                                                      \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
     create_RRROpcodeExtension_X0(FDOUBLE_ADDSUB_RRR_0_OPCODE_X0) | FNOP_X1
+
+#define FDOUBLE_MUL_FLAGS_X0                                                   \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
+    create_RRROpcodeExtension_X0(FDOUBLE_MUL_FLAGS_RRR_0_OPCODE_X0) | FNOP_X1
+
+#define FDOUBLE_SUB_FLAGS_X0                                                   \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
+    create_RRROpcodeExtension_X0(FDOUBLE_SUB_FLAGS_RRR_0_OPCODE_X0) | FNOP_X1
 
 #define FDOUBLE_UNPACK_MAX_X0                                                  \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X0(RRR_0_OPCODE_X0) |             \
@@ -177,6 +197,9 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(ADDLI_OPCODE_X1) |             \
 	create_SrcA_X1(0x3F) | FNOP_X0
 
+#define ADDXLI_X1                                                              \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X1(ADDXLI_OPCODE_X1) | FNOP_X0
+
 #define ADDI_X1                                                                \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(IMM8_OPCODE_X1) |              \
       create_Imm8OpcodeExtension_X1(ADDI_IMM8_OPCODE_X1) | FNOP_X0
@@ -204,6 +227,10 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
 #define SHL1ADD_X1                                                             \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(RRR_0_OPCODE_X1) |             \
     create_RRROpcodeExtension_X1(SHL1ADD_RRR_0_OPCODE_X1) | FNOP_X0
+
+#define SHL3ADD_X1                                                             \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X1(RRR_0_OPCODE_X1) |             \
+    create_RRROpcodeExtension_X1(SHL3ADD_RRR_0_OPCODE_X1) | FNOP_X0
 
 #define SHL16INSLI_X1                                                          \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(SHL16INSLI_OPCODE_X1) | FNOP_X0
@@ -383,6 +410,10 @@ int print_insn_tilegx_buf (unsigned char * memaddr, char *buf);
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(RRR_0_OPCODE_X1) |             \
       create_RRROpcodeExtension_X1(SHRUX_RRR_0_OPCODE_X1) | FNOP_X0
 
+#define ROTL_X1                                                                \
+  create_Mode(TILEGX_X_MODE) | create_Opcode_X1(RRR_0_OPCODE_X1) |             \
+    create_RRROpcodeExtension_X1(ROTL_RRR_0_OPCODE_X1) | FNOP_X0
+
 #define BEQZ_X1                                                                \
   create_Mode(TILEGX_X_MODE) | create_Opcode_X1(BRANCH_OPCODE_X1) |            \
       create_BrType_X1(BEQZ_BRANCH_OPCODE_X1) | FNOP_X0
@@ -441,75 +472,65 @@ struct Register {
   static const int kNumRegisters = 64;
   // For Float Register
   static const int kMaxNumRegisters = 64;
-  static const int kMaxNumAllocatableRegisters = 15;
+  static const int kMaxNumAllocatableRegisters = 17;
   static const int kSizeInBytes = 8;
 
   inline static int NumAllocatableRegisters();
 
   static int ToAllocationIndex(Register reg) {
-    ASSERT(reg.code() < kMaxNumAllocatableRegisters);
-    return reg.code();
+    ASSERT(kMaxNumAllocatableRegisters == 17); // If not, fix the table below!    
+    const int unused = -1;
+    const int alloc_top = 11;
+    const int code_to_index[] = {
+      alloc_top + 5,    // 0       (a0/v0)
+      alloc_top + 4,    // 1       (a1)
+      alloc_top + 3,    // 2       (a2)
+      alloc_top + 2,    // 3       (a3)
+      alloc_top + 1,    // 4       (a4) 
+      alloc_top + 6,    // 5       (t0) 
+      alloc_top + 7,    // 6       (t1) 
+      alloc_top + 8,    // 7       (t2) 
+      alloc_top + 9,    // 8       (t3) 
+      alloc_top + 10,   // 9       (t4) 
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,     // 10 - 21 (the allocatable set)
+      unused, unused, unused,                   // 22 - 24
+      unused, unused, unused, unused, unused,   // 25 - 29
+      unused, unused, unused, unused, unused,   // 30 - 34
+      unused, unused, unused, unused, unused,   // 35 - 39                        
+      alloc_top + 11,   // 40      (s1)                   
+      alloc_top + 12,   // 41      (s2)                   
+      alloc_top + 13,   // 42      (s3)                   
+      alloc_top + 14,   // 43      (s4)                   
+      alloc_top + 15,   // 44      (s5)                   
+      unused, unused, unused, unused, unused,   // 45 - 49                        
+      unused, unused, unused, unused, unused,   // 50 - 54                        
+      unused, unused, unused, unused, unused,   // 55 - 59                        
+      unused, unused, unused, unused};          // 60 - 63                        
+    ASSERT(reg.code() < kNumRegisters);
+    ASSERT(code_to_index[reg.code()] != -1);
+    return code_to_index[reg.code()];
   }
 
   static Register FromAllocationIndex(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
-    return from_code(index);
+    ASSERT(kMaxNumAllocatableRegisters == 17); // If not, fix the table below!    
+    const int index_to_code[] = {
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,  // the allocatable set
+      4, 3, 2, 1, 0,            // a0, a1, a2, a3, a4
+      5, 6, 7, 8, 9,            // t0, t1, t2, t3, t4
+      40, 41, 42, 43, 44};      // 40, 41, 42, 43, 44 (temps)
+
+    ASSERT((uint)index < (sizeof(index_to_code)/sizeof(int)));
+    return from_code(index_to_code[index]);
   }
 
   static const char* AllocationIndexToString(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
     const char* const names[] = {
-      "r0",
-      "r1",
-      "r2",
-      "r3",
-      "r4",
-      "r5",
-      "r6",
-      "r7",
-      "r8",
-      "r9",
-      "r10",
-      "r11",
-      "r12",
-      "r13",
-      "r14",
-      "r15",
-      "r16",
-      "r17",
-      "r18",
-      "r19",
-      "r20",
-      "r21",
-      "r22",
-      "r23",
-      "r24",
-      "r25",
-      "r26",
-      "r27",
-      "r28",
-      "r29",
-      "r30",
-      "r31",
-      "r32",
-      "r33",
-      "r34",
-      "r35",
-      "r36",
-      "r37",
-      "r38",
-      "r39",
-      "r40",
-      "r41",
-      "r42",
-      "r43",
-      "r44",
-      "r45",
-      "r46",
-      "r47",
-      "r48",
-      "r49",
-    };
+      "r10", "r11", "r12", "r13", "r14",
+      "r15", "r16", "r17", "r18", "r19", "r20", "r21",          // the allocatable set
+      "r4", "r3", "r2", "r1", "r0",               // a4, a3, a2, a1, a0
+      "r5", "r6", "r7", "r8", "r9",               // t0, t1, t2, t3, t4  
+      "r40", "r41", "r42", "r43", "r44)"};        // 40, 41, 42, 43, 44  (s* temps)
+    ASSERT((uint)index < (sizeof(names)/sizeof(char*)));
     return names[index];
   }
 
@@ -611,23 +632,120 @@ REGISTER(r63, 63);
 
 #undef REGISTER
 
+struct DoubleRegister {
+  static const int kNumRegisters = 64;
+  // For Float Register                                                                              
+  static const int kMaxNumRegisters = 64;
+  static const int kMaxNumAllocatableRegisters = 17;
+  static const int kSizeInBytes = 8;
+  
+  inline static int NumAllocatableRegisters();
+
+  static int ToAllocationIndex(DoubleRegister reg) {
+    ASSERT(kMaxNumAllocatableRegisters == 17); // If not, fix the table below!                       
+    const int unused = -1;
+    const int alloc_top = 11;
+    const int code_to_index[] = {
+      alloc_top + 5,    // 0       (a0/v0)
+      alloc_top + 4,    // 1       (a1)
+      alloc_top + 3,    // 2       (a2)
+      alloc_top + 2,    // 3       (a3)
+      alloc_top + 1,    // 4       (a4)
+      alloc_top + 6,    // 5       (t0)
+      alloc_top + 7,    // 6       (t1)
+      alloc_top + 8,    // 7       (t2)
+      alloc_top + 9,    // 8       (t3)
+      alloc_top + 10,   // 9       (t4)
+      unused, unused, unused, unused, unused,   // 10 - 14
+      unused, unused, unused, unused,           // 15 - 18
+      unused, unused, unused, unused, unused,   // 19 - 23
+      unused, unused, unused, unused,           // 24 - 27
+      unused, unused,                           // 28 - 29
+      0, 1, 2, 3, 4, 5, 6, 7, 8,                // 30 - 37 (the allocatable set)    
+      unused, unused,   // 38 - 39
+      alloc_top + 11,   // 40      (s1)
+      alloc_top + 12,   // 41      (s2)
+      alloc_top + 13,   // 42      (s3)
+      alloc_top + 14,   // 43      (s4)
+      alloc_top + 15,   // 44      (s5)
+      unused, unused,                           // 45 - 46
+      9, 10, 11,                                // 47 - 49 (allocatable)
+      unused, unused, unused, unused, unused,   // 50 - 54
+      unused, unused, unused, unused, unused,   // 55 - 59
+      unused, unused, unused, unused};          // 60 - 63
+    ASSERT(reg.code() < kNumRegisters);
+    ASSERT(code_to_index[reg.code()] != -1);
+    return code_to_index[reg.code()];
+  }
+
+  static DoubleRegister FromAllocationIndex(int index) {
+    ASSERT(kMaxNumAllocatableRegisters == 17); // If not, fix the table below!
+    const int index_to_code[] = {
+      30, 31, 32, 33, 34, 35, 36, 37, 38, 47, 48, 49,   // the allocatable set
+      4, 3, 2, 1, 0,            // a0, a1, a2, a3, a4
+      5, 6, 7, 8, 9,            // t0, t1, t2, t3, t4
+      40, 41, 42, 43, 44};      // 40, 41, 42, 43, 44 (temps)
+
+    ASSERT((uint)index < (sizeof(index_to_code)/sizeof(int)));
+    return from_code(index_to_code[index]);
+  }
+
+  static const char* AllocationIndexToString(int index) {
+    const char* const names[] = {
+      "r30", "r31", "r32", "r33", "r34", "r35", "r36", "r37", "r38", "r47", "r48", "r49",
+      "r4", "r3", "r2", "r1", "r0",               // a0, a1, a2, a3, a4
+      "r5", "r6", "r7", "r8", "r9",               // t0, t1, t2, t3, t4
+      "r40", "r41", "r42", "r43", "r44)"};        // 40, 41, 42, 43, 44  (s* temps)
+    ASSERT((uint)index < (sizeof(names)/sizeof(char*)));
+    return names[index];
+  }
+
+  
+  static DoubleRegister from_code(int code) {
+    DoubleRegister r = { code };
+    return r;
+  }
+  
+  bool is_valid() const { return 0 <= code_ && code_ < kNumRegisters; }
+  bool is(DoubleRegister reg) const { return code_ == reg.code_; }
+  
+  int code() const {
+    ASSERT(is_valid());
+    return code_;
+  }
+  
+  uint64_t bit() const {
+    ASSERT(is_valid());
+    return 1L << code_;
+  }
+  
+  void set_code(int code) {
+    code_ = code;
+    ASSERT(is_valid());
+  }
+  
+  // Unfortunately we can't make this private in a struct.
+  int code_;
+};
+
 
 const int kRegister_a0_Code = 0;
 const int kRegister_a1_Code = 1;
 const int kRegister_a2_Code = 2;
 const int kRegister_a3_Code = 3;
+const int kRegister_a4_Code = 4;
 
-const int kRegister_t0_Code = 18;
-const int kRegister_t1_Code = 19;
-const int kRegister_t2_Code = 20;
-const int kRegister_t3_Code = 21;
-const int kRegister_t4_Code = 22;
-const int kRegister_t5_Code = 23;
-const int kRegister_t6_Code = 24;
-const int kRegister_t7_Code = 25;
+const int kRegister_t0_Code = 5 /*5*/;
+const int kRegister_t1_Code = 6 /*6*/;
+const int kRegister_t2_Code = 7 /*7*/;
+const int kRegister_t3_Code = 8 /*8*/;
+const int kRegister_t4_Code = 9 /*9*/;
+const int kRegister_t5_Code = 23 /*23*/;
+const int kRegister_t6_Code = 24 /*24*/;
+const int kRegister_t7_Code = 25 /*25*/;
 
-const int kRegister_t8_Code = 26;
-const int kRegister_t9_Code = 27;
+const int kRegister_t8_Code = 26 /*26*/;
+const int kRegister_t9_Code = 27 /*27*/;
 
 const int kRegister_s0_Code = 39;
 const int kRegister_s1_Code = 40;
@@ -656,6 +774,13 @@ const Register v1  = { kRegister_a1_Code };
 const Register a1  = { kRegister_a1_Code };
 const Register a2  = { kRegister_a2_Code };
 const Register a3  = { kRegister_a3_Code };
+const Register a4  = { kRegister_a4_Code };
+const DoubleRegister v0_as_double  = { kRegister_a0_Code };
+const DoubleRegister a0_as_double  = { kRegister_a0_Code };
+const DoubleRegister a1_as_double  = { kRegister_a1_Code };
+const DoubleRegister a2_as_double  = { kRegister_a2_Code };
+const DoubleRegister a3_as_double  = { kRegister_a3_Code };
+const DoubleRegister a4_as_double  = { kRegister_a4_Code };
 
 const Register t0  = { kRegister_t0_Code };
 const Register t1  = { kRegister_t1_Code };
@@ -677,6 +802,10 @@ const Register s4  = { kRegister_s4_Code };
 const Register s5  = { kRegister_s5_Code };
 const Register s6  = { kRegister_s6_Code };
 const Register s7  = { kRegister_s7_Code };
+const DoubleRegister s2_as_double  = { kRegister_s2_Code };
+const DoubleRegister s3_as_double  = { kRegister_s3_Code };
+const DoubleRegister s4_as_double  = { kRegister_s4_Code };
+const DoubleRegister s5_as_double  = { kRegister_s5_Code };
 
 const Register at  = { kRegister_at_Code };
 const Register at2  = { kRegister_at2_Code };
@@ -688,6 +817,7 @@ const Register sp  = { kRegister_sp_Code };
 const Register ra  = { kRegister_lr_Code };
 const Register lr  = { kRegister_lr_Code };
 const Register zero = { kRegister_zero_Code };
+const DoubleRegister zero_as_double = { kRegister_zero_Code };
 const Register no_reg = { kRegister_no_reg_Code };
 
 // Register aliases.
@@ -699,6 +829,12 @@ const Register no_reg = { kRegister_no_reg_Code };
 #define cp s7
 #define kLithiumScratchReg s3
 #define kLithiumScratchReg2 s4
+#define kLithiumScratchReg3 s5
+#define kLithiumScratchReg4 s2
+#define kLithiumScratchRegD s3_as_double
+#define kLithiumScratchRegD2 s4_as_double
+#define kLithiumScratchRegD3 s5_as_double
+#define kLithiumScratchRegD4 s2_as_double
 
 int ToNumber(Register reg);
 
@@ -735,75 +871,6 @@ class Operand BASE_EMBEDDED {
   friend class MacroAssembler;
 };
 
-struct DoubleRegister {
-  static const int kNumRegisters = 64;
-  // For Float Register
-  static const int kMaxNumRegisters = 64;
-  static const int kMaxNumAllocatableRegisters = 15;
-  static const int kSizeInBytes = 8;
-  static const int kDoubleRegStart = 15;
-  static const int kDoubleRegEnd = 29;
-
-  inline static int NumAllocatableRegisters();
-
-  static int ToAllocationIndex(DoubleRegister reg) {
-    ASSERT(reg.code() > kDoubleRegStart && reg.code() < kDoubleRegEnd);
-    return reg.code();
-  }
-
-  static DoubleRegister FromAllocationIndex(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
-    return from_code(index);
-  }
-
-  static const char* AllocationIndexToString(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
-    const char* const names[] = {
-      "r15",
-      "r16",
-      "r17",
-      "r18",
-      "r19",
-      "r20",
-      "r21",
-      "r22",
-      "r23",
-      "r24",
-      "r25",
-      "r26",
-      "r27",
-      "r28",
-      "r29",
-    };
-    return names[index];
-  }
-
-  static DoubleRegister from_code(int code) {
-    DoubleRegister r = { code + kDoubleRegStart };
-    return r;
-  }
-
-  bool is_valid() const { return 0 <= code_ && code_ < kNumRegisters; }
-  bool is(DoubleRegister reg) const { return code_ == reg.code_; }
-
-  int code() const {
-    ASSERT(is_valid());
-    return code_;
-  }
-
-  uint64_t bit() const {
-    ASSERT(is_valid());
-    return 1L << code_;
-  }
-
-  void set_code(int code) {
-    code_ = code;
-    ASSERT(is_valid());
-  }
-
-  // Unfortunately we can't make this private in a struct.
-  int code_;
-};
 
 class MemOperand : public Operand {
  public:
@@ -847,7 +914,8 @@ class Assembler : public AssemblerBase {
     LAST_CODE_MARKER,
     FIRST_IC_MARKER = PROPERTY_ACCESS_INLINED,
     // Code aging
-    CODE_AGE_MARKER_NOP = 6
+    CODE_AGE_MARKER_NOP = 6,
+    INTERRUPT_PATCH_NOP = 7
   };
 
   // Insert the smallest number of nop instructions
@@ -1028,8 +1096,12 @@ class Assembler : public AssemblerBase {
   void bltz(const Register& rs, int32_t offset, int line = 0);
 
   void bfextu(const Register& rd, const Register& rs, int32_t offset1, int32_t offset2, int line = 0);
+  void bfextu(const DoubleRegister& rd, const DoubleRegister& rs, 
+	      int32_t offset1, int32_t offset2, int line = 0);
   void bfexts(const Register& rd, const Register& rs, int32_t offset1, int32_t offset2, int line = 0);
   void bfins(const Register& rd, const Register& rs, int32_t offset1, int32_t offset2, int line = 0);
+  void bfins(const DoubleRegister& rd, const DoubleRegister& rs, int32_t offset1, 
+	     int32_t offset2, int line = 0);
 
   void cmpeq(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void cmpne(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
@@ -1038,6 +1110,8 @@ class Assembler : public AssemblerBase {
   Instr cmpltsi_b(const Register& rd, const Register& rsa, int8_t imm, int line = 0);
   void cmples(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void cmpltu(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
+  void cmpltu(const DoubleRegister& rd, const DoubleRegister& rsa,
+	      const DoubleRegister& rsb, int line = 0);
   void cmpltui(const Register& rd, const Register& rsa, int8_t imm, int line = 0);
   void cmpleu(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
 
@@ -1072,21 +1146,28 @@ class Assembler : public AssemblerBase {
   void ld4u(const Register& rd, const MemOperand& rs, int line = 0);
   void ld4u(const Register& rd, const Register& rs, int line = 0);
   void ld4s(const Register& rd, const MemOperand& rs, int line = 0);
+  void ld4s(const DoubleRegister& rd, const MemOperand& rs, int line = 0);
   void ld4s(const Register& rd, const Register& rs, int line = 0);
+  void ld4s(const DoubleRegister& rd, const Register& rs, int line = 0);
   void add(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
+  void add(const DoubleRegister& rd, const DoubleRegister& rsa,
+	   const DoubleRegister& rsb, int line = 0);
   void addx(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void sub(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void subx(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void mulx(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
   void addi(const Register& rd, const Register& rs, int8_t imm, int line = 0);
+  void addi(const DoubleRegister& rd, const DoubleRegister& rs, int8_t imm, int line = 0);
   void addxi(const Register& rd, const Register& rs, int8_t imm, int line = 0);
   void addli(const Register& rd, const Register& rs, int16_t imm, int line = 0);
-  void nor(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
+  void addxli(const Register& rd, const Register& rs, int16_t imm, int line = 0);
   void srl(const Register& rd, const Register& rs, int16_t imm, int line = 0);
+  void srl(const DoubleRegister& rd, const DoubleRegister& rs, int16_t imm, int line = 0);
   void srl(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void sra(const Register& rd, const Register& rs, int16_t imm, int line = 0);
   void sra(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void sll(const Register& rd, const Register& rs, int16_t imm, int line = 0);
+  void sll(const DoubleRegister& rd, const DoubleRegister& rs, int16_t imm, int line = 0);
   void sll(const Register& rd, const Register& rs, const Register& rt, int line = 0);
 
   void srlx(const Register& rd, const Register& rs, int16_t imm, int line = 0);
@@ -1094,12 +1175,19 @@ class Assembler : public AssemblerBase {
   void sllx(const Register& rd, const Register& rs, int16_t imm, int line = 0);
   void sllx(const Register& rd, const Register& rs, const Register& rt, int line = 0);
 
+  void rotl(const Register& rd, const Register& rs, const Register& rt, int line = 0);
+
   void moveli(const Register& rd, int16_t imm, int line = 0);
   void shl1add(const Register& rd, const Register& rs, const Register& rt, int line = 0);
+  void shl3add(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void shl16insli(const Register& rd, const Register& rs, int16_t imm, int line = 0);
   void move(const Register& rt, const Register& rs, int line = 0);
+  void move(const DoubleRegister& rt, const DoubleRegister& rs, int line = 0);
+  void moved2r(const Register& rt, const DoubleRegister& rs, int line = 0);
+  void mover2d(const DoubleRegister& rt, const Register& rs, int line = 0);
   void and_(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void or_(const Register& rd, const Register& rs, const Register& rt, int line = 0);
+  void nor(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void xor_(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void ori(const Register& rd, const Register& rs, int8_t imm8, int line = 0);
   void xori(const Register& rd, const Register& rs, int8_t imm8, int line = 0);
@@ -1109,20 +1197,59 @@ class Assembler : public AssemblerBase {
   void clz(const Register& rd, const Register& rs, int line = 0);
   void v4int_l(const Register& rd, const Register& rs, const Register& rt, int line = 0);
 
-  void mul_lu_lu(const Register& rd, const Register& rs, const Register& rt, int line = 0);
+  void mul_hu_hu(const DoubleRegister& rd, const DoubleRegister& rs,
+		 const DoubleRegister& rt, int line = 0);
+  void mul_hu_lu(const DoubleRegister& rd, const DoubleRegister& rs,
+		 const DoubleRegister& rt, int line = 0);
+  void mula_hu_lu(const DoubleRegister& rd, const DoubleRegister& rs,
+		  const DoubleRegister& rt, int line = 0);
+  void mul_lu_lu(const DoubleRegister& rd, const DoubleRegister& rs,
+		 const DoubleRegister& rt, int line = 0);
   void mul_ls_ls(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void mul_hs_ls(const Register& rd, const Register& rs, const Register& rt, int line = 0);
   void mul_hs_hs(const Register& rd, const Register& rs, const Register& rt, int line = 0);
 
   void fsingle_pack1(const Register& rd, const Register& rsa, int line = 0);
   void fsingle_pack2(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_pack1(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_pack2(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_add_flags(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_addsub(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_unpack_max(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-  void fdouble_unpack_min(const Register& rd, const Register& rsa, const Register& rsb, int line = 0);
-
+  void fdouble_pack1(const DoubleRegister& rd, const DoubleRegister& rsa,
+		     const DoubleRegister& rsb, int line = 0);
+  void fdouble_pack2(const DoubleRegister& rd, const DoubleRegister& rsa, 
+		     const DoubleRegister& rsb, int line = 0);
+  void fdouble_add_flags(const DoubleRegister& rd, const DoubleRegister& rsa, 
+			 const DoubleRegister& rsb, int line = 0);
+  void fdouble_addsub(const DoubleRegister& rd, const DoubleRegister& rsa, 
+		      const DoubleRegister& rsb, int line = 0);
+  void fdouble_mul_flags(const DoubleRegister& rd, const DoubleRegister& rsa, 
+			 const DoubleRegister& rsb, int line = 0);
+  void fdouble_sub_flags(const DoubleRegister& rd, const DoubleRegister& rsa, 
+			 const DoubleRegister& rsb, int line = 0);
+  void fdouble_unpack_max(const DoubleRegister& rd, const DoubleRegister& rsa, 
+			  const DoubleRegister& rsb, int line = 0);
+  void fdouble_unpack_min(const DoubleRegister& rd, const DoubleRegister& rsa, 
+			  const DoubleRegister& rsb, int line = 0);
+  void fdouble_pack1(const Register& rd, const Register& rsa,
+                     const Register& rsb, int line = 0);
+  void fdouble_pack2(const Register& rd, const Register& rsa,
+                     const Register& rsb, int line = 0);
+  void fdouble_add_flags(const Register& rd, const Register& rsa,
+                         const Register& rsb, int line = 0);
+  void fdouble_add_flags(const Register& rd, const DoubleRegister& rsa,
+                         const Register& rsb, int line = 0);
+  void fdouble_addsub(const Register& rd, const Register& rsa,
+                      const Register& rsb, int line = 0);
+  void fdouble_mul_flags(const Register& rd, const Register& rsa,
+                         const Register& rsb, int line = 0);
+  void fdouble_sub_flags(const Register& rd, const Register& rsa,
+                         const Register& rsb, int line = 0);
+  void fdouble_unpack_max(const Register& rd, const Register& rsa,
+                          const Register& rsb, int line = 0);
+  void fdouble_unpack_min(const Register& rd, const Register& rsa,
+                          const Register& rsb, int line = 0);
+  void fdouble_unpack_max(const Register& rd, const DoubleRegister& rsa,
+                          const Register& rsb, int line = 0);
+  void fdouble_unpack_min(const Register& rd, const DoubleRegister& rsa,
+                          const Register& rsb, int line = 0);
+ 
   void break_(uint32_t code, bool break_as_stop = false);
   void stop(const char* msg, uint32_t code = kMaxStopCode);
 

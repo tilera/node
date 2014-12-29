@@ -55,18 +55,17 @@ void MacroAssembler::LoadRoot(Register destination,
   ld(destination, MemOperand(kRootRegister, index << kPointerSizeLog2));
 }
 
-
 void MacroAssembler::LoadRoot(Register destination,
                               Heap::RootListIndex index,
                               Condition cond,
                               Register src1, const Operand& src2) {
   Branch(3, NegateCondition(cond), src1, src2);
-  ld(destination, MemOperand(s6, index << kPointerSizeLog2));
+  ld(destination, MemOperand(kRootRegister, index << kPointerSizeLog2));
 }
 
 void MacroAssembler::StoreRoot(Register source,
                                Heap::RootListIndex index) {
-  st(source, MemOperand(s6, index << kPointerSizeLog2));
+  st(source, MemOperand(kRootRegister, index << kPointerSizeLog2));
 }
 
 void MacroAssembler::StoreRoot(Register source,
@@ -74,7 +73,7 @@ void MacroAssembler::StoreRoot(Register source,
                                Condition cond,
                                Register src1, const Operand& src2) {
   Branch(3, NegateCondition(cond), src1, src2);
-  st(source, MemOperand(s6, index << kPointerSizeLog2));
+  st(source, MemOperand(kRootRegister, index << kPointerSizeLog2));
 }
 
 void MacroAssembler::LoadHeapObject(Register result,
@@ -638,7 +637,15 @@ void MacroAssembler::Slt(Register rd, Register rs, const Operand& rt) { UNREACHA
 void MacroAssembler::Sltu(Register rd, Register rs, const Operand& rt) { UNREACHABLE(); }
 
 
-void MacroAssembler::Ror(Register rd, Register rs, const Operand& rt) { UNREACHABLE(); }
+void MacroAssembler::Ror(Register rd, Register rs, const Operand& rt) {
+  // 32-bit rotate right
+  addli(at, zero, 64);
+  sub(at, at, rt.rm());
+  rotl(at, rs, at);
+  bfextu(rd, at, 32, 63);
+  or_(rd, rd, at);
+  bfextu(rd, rd, 0, 31); 
+}
 
 //------------Pseudo-instructions-------------
 
@@ -723,7 +730,20 @@ void MacroAssembler::MultiPopFPU(RegList regs) { UNREACHABLE(); }
 void MacroAssembler::MultiPopReversedFPU(RegList regs) { UNREACHABLE(); }
 
 
-void MacroAssembler::FlushICache(Register address, unsigned instructions) { UNREACHABLE(); }
+void MacroAssembler::FlushICache(Register address, unsigned instructions) {
+  RegList saved_regs = a0.bit() | a1.bit() | lr.bit();
+  MultiPush(saved_regs);
+  AllowExternalCallThatCantCauseGC scope(this);
+
+  // Save to a0 in case address == t0.                                                               
+  Move(a0, address);
+  PrepareCallCFunction(2, t0);
+
+  li(a1, instructions * kInstrSize);
+  CallCFunction(ExternalReference::flush_icache_function(isolate()), 2);
+  MultiPop(saved_regs);
+}
+
 
 void MacroAssembler::Jalr(Label* L) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
@@ -1352,6 +1372,74 @@ void MacroAssembler::Branch(Label* L,
                             Heap::RootListIndex index) {
   LoadRoot(at, index);
   Branch(L, cond, rs, Operand(at));
+}
+
+void MacroAssembler::BranchF(Label* target,
+			     Label* nan,
+			     Condition cc,
+			     DoubleRegister cmp1,
+			     DoubleRegister cmp2) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  if (cc == al) {
+    Branch(target);
+    return;
+  }
+
+  moved2r(t0, cmp1);
+  moved2r(t1, cmp2);
+
+  ASSERT(nan || target);
+  // Check for unordered (NaN) cases.                                                                
+  if (nan) {
+    Label neither_is_nan;
+    Label lhs_not_nan_exp_mask_is_loaded;
+
+    Register exp_mask_reg = t4;
+    li(exp_mask_reg, 0x7FF0000000000000L);
+    and_(t5, t1, exp_mask_reg);
+    Branch(&lhs_not_nan_exp_mask_is_loaded, ne, t5, Operand(exp_mask_reg));
+
+    sll(t5, t1, HeapNumber::kNonMantissaBitsInTopWord);
+    Branch(nan, ne, t5, Operand(zero));
+
+    li(exp_mask_reg, 0x7FF0000000000000L);
+    bind(&lhs_not_nan_exp_mask_is_loaded);
+    and_(t5, r0, exp_mask_reg);
+
+    Branch(&neither_is_nan, ne, t5, Operand(exp_mask_reg));
+
+    sll(t5, t0, HeapNumber::kNonMantissaBitsInTopWord);
+    Branch(nan, ne, t5, Operand(zero));
+
+    bind(&neither_is_nan);
+  }
+
+  if (target) {
+    // Here NaN cases were either handled by this function or are assumed to
+    // have been handled by the caller.
+    // Unsigned conditions are treated as their signed counterpart.
+    if (cc == nue)
+      cc = ne;
+    else if (cc == ueq)
+      cc = eq;
+
+    Label not_equal, greater, do_branch;
+    fdouble_add_flags(t1, t0, t1);
+    bfextu(t0, t1, 30, 30);
+    Branch(&not_equal, eq, t0, Operand(zero));
+    move(t0, zero);
+    jmp(&do_branch);
+    bind(&not_equal);
+    bfextu(t0, t1, 26, 26);
+    Branch(&greater, eq, t0, Operand(zero));
+    addi(t0, zero, -1);
+    jmp(&do_branch);
+    bind(&greater);
+    addi(t0, zero, 1);
+    bind(&do_branch);
+
+    Branch(target, cc, t0, Operand(zero));
+  }
 }
 
 void MacroAssembler::BranchAndLink(int16_t offset) {
@@ -2137,11 +2225,12 @@ void MacroAssembler::GetLeastBitsFromInt32(Register dst,
   And(dst, src, Operand((1 << num_least_bits) - 1));
 }
 
-void MacroAssembler::AdduAndCheckForOverflow(Register dst,
-                                             Register left,
-                                             Register right,
-                                             Register overflow_dst,
-                                             Register scratch) {
+void MacroAssembler::AddAndCheckForOverflow(Register dst,
+					    Register left,
+					    Register right,
+					    Register overflow_dst,
+					    Register scratch,
+					    bool is_32bit) {
   ASSERT(!dst.is(overflow_dst));
   ASSERT(!dst.is(scratch));
   ASSERT(!overflow_dst.is(scratch));
@@ -2160,18 +2249,27 @@ void MacroAssembler::AdduAndCheckForOverflow(Register dst,
 
   if (dst.is(left)) {
     move(scratch, left);  // Preserve left.
-    add(dst, left, right);  // Left is overwritten.
+    if (is_32bit)
+      addx(dst, left, right);  // Left is overwritten.
+    else
+      add(dst, left, right);  // Left is overwritten
     xor_(scratch, dst, scratch);  // Original left.
     xor_(overflow_dst, dst, right);
     and_(overflow_dst, overflow_dst, scratch);
   } else if (dst.is(right)) {
     move(scratch, right);  // Preserve right.
-    add(dst, left, right);  // Right is overwritten.
+    if (is_32bit)
+      addx(dst, left, right);  // Right is overwritten.
+    else
+      add(dst, left, right);  // Right is overwritten. 
     xor_(scratch, dst, scratch);  // Original right.
     xor_(overflow_dst, dst, left);
     and_(overflow_dst, overflow_dst, scratch);
   } else {
-    add(dst, left, right);
+    if (is_32bit)
+      addx(dst, left, right);
+    else
+      add(dst, left, right);
     xor_(overflow_dst, dst, left);
     xor_(scratch, dst, right);
     and_(overflow_dst, scratch, overflow_dst);
@@ -2179,11 +2277,12 @@ void MacroAssembler::AdduAndCheckForOverflow(Register dst,
 }
 
 
-void MacroAssembler::SubuAndCheckForOverflow(Register dst,
-                                             Register left,
-                                             Register right,
-                                             Register overflow_dst,
-                                             Register scratch) {
+void MacroAssembler::SubAndCheckForOverflow(Register dst,
+					    Register left,
+					    Register right,
+					    Register overflow_dst,
+					    Register scratch,
+					    bool is_32bit) {
   ASSERT(!dst.is(overflow_dst));
   ASSERT(!dst.is(scratch));
   ASSERT(!overflow_dst.is(scratch));
@@ -2202,18 +2301,27 @@ void MacroAssembler::SubuAndCheckForOverflow(Register dst,
 
   if (dst.is(left)) {
     move(scratch, left);  // Preserve left.
-    sub(dst, left, right);  // Left is overwritten.
+    if (is_32bit)
+      subx(dst, left, right);  // Left is overwritten. 
+    else
+      sub(dst, left, right);  // Left is overwritten.
     xor_(overflow_dst, dst, scratch);  // scratch is original left.
     xor_(scratch, scratch, right);  // scratch is original left.
     and_(overflow_dst, scratch, overflow_dst);
   } else if (dst.is(right)) {
     move(scratch, right);  // Preserve right.
-    sub(dst, left, right);  // Right is overwritten.
+    if (is_32bit)
+      subx(dst, left, right);  // Right is overwritten.
+    else
+      sub(dst, left, right);  // Right is overwritten. 
     xor_(overflow_dst, dst, left);
     xor_(scratch, left, scratch);  // Original right.
     and_(overflow_dst, scratch, overflow_dst);
   } else {
-    sub(dst, left, right);
+    if (is_32bit)
+      subx(dst, left, right);
+    else
+      sub(dst, left, right);
     xor_(overflow_dst, dst, left);
     xor_(scratch, left, right);
     and_(overflow_dst, scratch, overflow_dst);
@@ -2456,6 +2564,7 @@ void MacroAssembler::CompareMapAndBranch(Register obj_map,
 					 Condition cond,
 					 Label* branch_to,
 					 CompareMapMode mode) {
+  /*
   Operand right = Operand(map);
   if (mode == ALLOW_ELEMENT_TRANSITION_MAPS) {
     ElementsKind kind = map->elements_kind();
@@ -2473,6 +2582,10 @@ void MacroAssembler::CompareMapAndBranch(Register obj_map,
   }
 
   Branch(branch_to, cond, obj_map, right);
+*/
+
+  Branch(branch_to, cond, obj_map, Operand(map));
+
 }
 
 
@@ -3967,7 +4080,7 @@ void MacroAssembler::ClampUint8(Register output_reg, Register input_reg) {
 }
 
 void MacroAssembler::ClampDoubleToUint8(Register result_reg,
-                                        Register input_reg,
+                                        DoubleRegister input_reg,
                                         Register temp_reg,
                                         Register temp_reg1,
                                         Register temp_reg2,
@@ -3996,7 +4109,7 @@ void MacroAssembler::ClampDoubleToUint8(Register result_reg,
 
   // In 0-255 range, round and truncate.
   bind(&in_bounds);
-  move(temp_reg3, input_reg);
+  moved2r(temp_reg3, input_reg);
   //cvt_w_d(temp_reg, input_reg);
   li(temp_reg, Operand(0x3fe0000000000000L)); // Add 0.5 
   bind(&do_round);
@@ -4007,7 +4120,7 @@ void MacroAssembler::ClampDoubleToUint8(Register result_reg,
   fdouble_pack1     (result_reg, temp_reg2, temp_reg);
   fdouble_pack2     (result_reg, temp_reg2, zero);
 
-  ConvertToInt32(zero, result_reg, input_reg, temp_reg, temp_reg1, temp_reg2, NULL, true, false);
+  ConvertToInt32(zero, result_reg, t9, temp_reg, temp_reg1, temp_reg2, NULL, true, false);
 
   // If the Uint8 is odd, we have to re-try, adding .499 rather than .5.
   // This is to implement unbiased ("Round half to even") rounding.  No
@@ -4017,7 +4130,7 @@ void MacroAssembler::ClampDoubleToUint8(Register result_reg,
   Branch(&done, eq, temp_reg, Operand(zero));
   Branch(&done, eq, temp_reg3, Operand(zero));
   li(temp_reg, Operand(0x3fdfef9db22d0e56L)); // Add 0.499
-  move(input_reg, temp_reg3);
+  mover2d(input_reg, temp_reg3);
   move(temp_reg3, zero);
   Branch(&do_round);
 
@@ -4055,15 +4168,21 @@ void MacroAssembler::GetObjectType(Register object,
 
 void MacroAssembler::SmiTagCheckOverflow(Register reg, Register overflow) {
   ASSERT(!reg.is(overflow));
-  move(overflow, reg);  // Save original value.
+  bfextu(overflow, reg, 32, 63);
+  //  move(overflow, reg);  // Save original value.
   SmiTag(reg);
-  xor_(overflow, overflow, reg);  // Overflow if (value ^ 2 * value) < 0.
+  //  SmiUntag(at, reg);
+  //  cmpne(overflow, overflow, at);  // overflow = 1 if overflow
 }
 
 
 void MacroAssembler::SmiTagCheckOverflow(Register dst,
                                          Register src,
                                          Register overflow) {
+  bfextu(overflow, src, 32, 63);
+  SmiTag(dst, src);
+
+  /*
   if (dst.is(src)) {
     // Fall back to slower case.
     SmiTagCheckOverflow(dst, overflow);
@@ -4072,8 +4191,10 @@ void MacroAssembler::SmiTagCheckOverflow(Register dst,
     ASSERT(!dst.is(overflow));
     ASSERT(!src.is(overflow));
     SmiTag(dst, src);
-    xor_(overflow, dst, src);  // Overflow if (value ^ 2 * value) < 0.
+    SmiUntag(overflow, dst);
+    cmpne(overflow, overflow, src);  // overflow = 1 if overflow 
   }
+  */
 }
 
 void MacroAssembler::IsObjectJSStringType(Register object,
@@ -4114,73 +4235,83 @@ void MacroAssembler::IsObjectJSObjectType(Register heap_object,
 
 void MacroAssembler::PatchRelocatedValue(Register li_location,
                                          Register scratch,
+					 Register scratch2,
                                          Register new_value) {
+  // Patch an addli/shl16insli/shl16insli sequence (all in X1 slots).
+  // li_location points to the addli.
+  // We're making 3 16-bit chunks from new_value:
+  ASSERT(kImm16LoadBits == 16);  // duh
   ld(scratch, MemOperand(li_location));
-  // At this point scratch is a lui(at, ...) instruction.
   if (emit_debug_code()) {
-    //FIXME
-#if 0
-    And(scratch, scratch, kOpcodeMask);
-    Check(eq, "The instruction to patch should be a lui.",
-        scratch, Operand(LUI));
-#endif
-    ld(scratch, MemOperand(li_location));
+    bfextu(scratch2, scratch, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The instruction to patch should be an addli.",
+	  scratch2, Operand(ADDLI_OPCODE_X1));
   }
-  srl(t9, new_value, kImm16Bits);
-  bfins(scratch, t9, 0, kImm16Bits - 1);
+  bfextu(t9, new_value, 32, 47);  // upper 16 bits
+  bfins(scratch, t9, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
   st(scratch, MemOperand(li_location));
 
-  ld(scratch, MemOperand(li_location, kInstrSize));
-  // scratch is now ori(at, ...).
+  addli(scratch2, li_location, kInstrSize);
+  ld(scratch, MemOperand(scratch2));
   if (emit_debug_code()) {
-    //FIXME
-#if 0
-    And(scratch, scratch, kOpcodeMask);
-    Check(eq, "The instruction to patch should be an ori.",
-        scratch, Operand(ORI));
-#endif
-    ld(scratch, MemOperand(li_location, kInstrSize));
+    bfextu(scratch2, scratch, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The second instruction should be shl16insli",
+          scratch2, Operand(SHL16INSLI_X1));
+    addli(scratch2, li_location, kInstrSize);
   }
-  bfins(scratch, new_value, 0, kImm16Bits - 1);
-  st(scratch, MemOperand(li_location, kInstrSize));
+
+  bfexts(t9, new_value, 16, 31);  // middle 16 bits
+  bfins(scratch, t9, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
+  st(scratch, MemOperand(scratch2));
+  addli(scratch2, scratch2, kInstrSize);
+
+  ld(scratch, MemOperand(scratch2));
+  if (emit_debug_code()) {
+    bfextu(scratch2, scratch, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The third instruction should be shl16insli",
+          scratch2, Operand(SHL16INSLI_X1));
+    addli(scratch2, li_location, kInstrSize * 2);
+  }
+
+  bfexts(t9, new_value, 0, 15);  // lower 16 bits
+  bfins(scratch, t9, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
+  st(scratch, MemOperand(scratch2));
 
   // Update the I-cache so the new lui and ori can be executed.
-  FlushICache(li_location, 2);
+  FlushICache(li_location, 3);
 }
 
 void MacroAssembler::GetRelocatedValue(Register li_location,
                                        Register value,
-                                       Register scratch) {
-  ld(value, MemOperand(li_location));
+                                       Register scratch,
+				       Register scratch2) {
+  // Extract the constant from an addli/shl16insli/shl16insli sequence.
+  // All instructions expected to be in X1. li_location is pointing
+  // to the LAST instruction.
+  ld(value, MemOperand(li_location, -2 * kInstrSize));
   if (emit_debug_code()) {
-    //FIXME
-#if 0
-    And(value, value, kOpcodeMask);
-    Check(eq, "The instruction should be a lui.",
-        value, Operand(LUI));
-#endif
-    ld(value, MemOperand(li_location));
+    bfextu(scratch2, value, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The relocated instruction should be an addli.",
+          scratch2, Operand(ADDLI_OPCODE_X1));
   }
-
-  // value now holds a lui instruction. Extract the immediate.
-  sll(value, value, kImm16Bits);
-
-  ld(scratch, MemOperand(li_location, kInstrSize));
+  bfextu(value, value, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
+  sll(value, value, kImm16LoadBits);
+  ld(scratch, MemOperand(li_location, -kInstrSize));
   if (emit_debug_code()) {
-    //FIXME
-#if 0
-    And(scratch, scratch, kOpcodeMask);
-    Check(eq, "The instruction should be an ori.",
-        scratch, Operand(ORI));
-#endif
-    ld(scratch, MemOperand(li_location, kInstrSize));
+    bfextu(scratch2, scratch, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The second instruction should be shl16insli",
+          scratch2, Operand(SHL16INSLI_X1));
   }
-  // "scratch" now holds an ori instruction. Extract the immediate.
-  // FIXME
-  li(at, Operand(kImm16Mask));
-  and_(scratch, scratch, at);
-
-  // Merge the results.
+  bfextu(scratch, scratch, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
+  or_(value, value, scratch);
+  sll(value, value, kImm16LoadBits);
+  ld(scratch, MemOperand(li_location));
+  if (emit_debug_code()) {
+    bfextu(scratch2, scratch, kX1OpcodeOffset, kX1OpcodeSize - 1);
+    Check(eq, "The third instruction should be shl16insli",
+          scratch2, Operand(SHL16INSLI_X1));
+  }
+  bfextu(scratch, scratch, kImm16LoadShift, kImm16LoadShift + kImm16LoadBits - 1);
   or_(value, value, scratch);
 }
 
@@ -4249,7 +4380,10 @@ void MacroAssembler::ConvertToInt32(Register source,
 
   Label right_exponent, done;
   // Get exponent word (ENDIAN issues).
-  ld(scratch1, FieldMemOperand(source, HeapNumber::kValueOffset));
+  if(need_load)
+     ld(scratch1, FieldMemOperand(source, HeapNumber::kValueOffset));
+  else
+    move(scratch1, dest);
   // Get exponent alone in scratch2.
   And(scratch2, scratch1, Operand(0x7FFL << 52));
   // Load dest with zero.  We use this either for the final shift or
@@ -4370,6 +4504,78 @@ void MacroAssembler::EmitOutOfInt32RangeTruncate(Register result,
   movz(result, input, scratch);
   bind(&done);
 }
+
+// Conversion from float64 to Int64, copied from glibc
+// float64_to_int64_round_to_zero
+void MacroAssembler::ConvertToInt64(Register source,
+                                    Register dest,
+                                    Register scratch1,
+                                    Register scratch2,
+                                    Register scratch3,
+                                    Register scratch4,
+				    Register scratch5,
+				    bool need_load) {
+  Label L1, L2, L3, L4, L5, done;
+
+    if (need_load)
+      ld(dest, FieldMemOperand(source, HeapNumber::kValueOffset));
+
+    bfextu(scratch2, dest, 52, 62);
+    move(scratch1, dest);
+    bfextu(scratch5, dest, 0, 51);
+    srl(scratch4, dest, 63);
+    Branch(&L4, eq, scratch2, Operand(zero));
+    moveli(scratch3, 1);
+    addxli(dest, scratch2, -1075);
+    sll(scratch3, scratch3, 52);
+    or_(scratch3, scratch5, scratch3);
+    Branch(&L2, lt, dest, Operand(zero));
+    moveli(r6, 1085);
+    sll(dest, scratch3, dest);
+    cmples(scratch5, scratch2, r6);
+    Branch(&L3, ne, scratch5, Operand(zero));
+    moveli(dest, -481);
+    sll(dest, dest, 53);
+    cmpeq(scratch1, scratch1, dest);
+    Branch(&L5, ne, scratch1, Operand(zero));
+    Branch(&L1, eq, scratch4, Operand(zero));
+    moveli(r6, 1);
+    moveli(scratch1, 2047);
+    sll(r6, r6, 52);
+    cmpeq(scratch2, scratch2, scratch1);
+    cmpne(scratch3, scratch3, r6);
+    and_(scratch2, scratch2, scratch3);
+    Branch(&L5, eq, scratch2, Operand(zero));
+
+  bind(&L1);
+    moveli(dest, -2);
+    srl(dest, dest, 1);
+    Branch(&done);
+ 
+  bind(&L2);
+    moveli(scratch1, 1021);
+    cmples(scratch2, scratch2, scratch1);
+    Branch(&L4, ne, scratch2, Operand(zero));
+    subx(dest, zero, dest);
+    srl(dest, scratch3, dest);
+
+  bind(&L3);
+    sub(scratch1, zero, dest);
+    movn(dest, scratch1, scratch4);
+    Branch(&done);
+
+  bind(&L4);
+    moveli(dest, 0);
+    Branch(&done);
+
+  bind(&L5);
+    moveli(dest, -1);
+    srl(dest, dest, 63);
+
+  bind(&done);
+
+}
+
 
 bool AreAliased(Register r1, Register r2, Register r3, Register r4) {
   if (r1.is(r2)) return true;

@@ -37,13 +37,19 @@ namespace internal {
 
 const int kImm8Shift = 0;
 const int kImm8Bits  = 8;
-const int kImm16Shift = 0;
-const int kImm16Bits  = 16;
+const int kImm16BranchShift = 0;
+const int kImm16BranchBits  = 16;
+const int kImm16LoadShift = 43;  // Assumes ADDLI/SHL16INSLI are both in X1 format
+const int kImm16LoadBits  = 16;
 const int kImm30Shift = 0;
 const int kImm30Bits  = 30;
-const int kImm8Mask   = ((1 << kImm8Bits) - 1) << kImm8Shift;
-const int kImm16Mask  = ((1 << kImm16Bits) - 1) << kImm16Shift;
-const int kImm30Mask  = ((1 << kImm30Bits) - 1) << kImm30Shift;
+const uint64_t kImm8Mask  = ((1L << kImm8Bits) - 1) << kImm8Shift;
+const uint64_t kImm16BranchMask = ((1L << kImm16BranchBits) - 1) << kImm16BranchShift;
+const uint64_t kImm16LoadMask = ((1L << kImm16LoadBits) - 1) << kImm16LoadShift;
+const uint64_t kImm30Mask = ((1L << kImm30Bits) - 1) << kImm30Shift;
+
+const int kX1OpcodeOffset = 59;
+const int kX1OpcodeSize = 3;
 
 const uint32_t kMaxWatchpointCode = 31;
 const uint32_t kMaxStopCode = 127;

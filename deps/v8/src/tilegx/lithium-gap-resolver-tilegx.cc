@@ -170,14 +170,11 @@ void LGapResolver::BreakCycle(int index) {
   } else if (source->IsStackSlot()) {
     __ ld(kLithiumScratchReg, cgen_->ToMemOperand(source));
   } else if (source->IsDoubleRegister()) {
-    UNREACHABLE();
-#if 0
-    __ mov_d(kLithiumScratchDouble, cgen_->ToDoubleRegister(source));
-#endif
+    __ move(kLithiumScratchRegD, cgen_->ToDoubleRegister(source));
   } else if (source->IsDoubleStackSlot()) {
     UNREACHABLE();
 #if 0
-    __ ldc1(kLithiumScratchDouble, cgen_->ToMemOperand(source));
+    __ ldc1(kLithiumScratchRegD, cgen_->ToMemOperand(source));
 #endif
   } else {
     UNREACHABLE();
@@ -191,21 +188,18 @@ void LGapResolver::RestoreValue() {
   ASSERT(in_cycle_);
   ASSERT(saved_destination_ != NULL);
 
-  // Spilled value is in kLithiumScratchReg or kLithiumScratchDouble.
+  // Spilled value is in kLithiumScratchReg or kLithiumScratchRegD.
   if (saved_destination_->IsRegister()) {
     __ move(cgen_->ToRegister(saved_destination_), kLithiumScratchReg);
   } else if (saved_destination_->IsStackSlot()) {
     __ st(kLithiumScratchReg, cgen_->ToMemOperand(saved_destination_));
   } else if (saved_destination_->IsDoubleRegister()) {
-    UNREACHABLE();
-#if 0
-    __ mov_d(cgen_->ToDoubleRegister(saved_destination_),
-            kLithiumScratchDouble);
-#endif
+    __ move(cgen_->ToDoubleRegister(saved_destination_),
+            kLithiumScratchRegD);
   } else if (saved_destination_->IsDoubleStackSlot()) {
     UNREACHABLE();
 #if 0
-    __ sdc1(kLithiumScratchDouble,
+    __ sdc1(kLithiumScratchRegD,
             cgen_->ToMemOperand(saved_destination_));
 #endif
   } else {
@@ -238,27 +232,18 @@ void LGapResolver::EmitMove(int index) {
     if (destination->IsRegister()) {
       __ ld(cgen_->ToRegister(destination), source_operand);
     } else {
-      UNREACHABLE();
-#if 0
       ASSERT(destination->IsStackSlot());
       MemOperand destination_operand = cgen_->ToMemOperand(destination);
       if (in_cycle_) {
-        if (!destination_operand.OffsetIsInt16Encodable()) {
-          // 'at' is overwritten while saving the value to the destination.
-          // Therefore we can't use 'at'.  It is OK if the read from the source
-          // destroys 'at', since that happens before the value is read.
-          // This uses only a single reg of the double reg-pair.
-          __ lwc1(kLithiumScratchDouble, source_operand);
-          __ swc1(kLithiumScratchDouble, destination_operand);
-        } else {
-          __ ld(at, source_operand);
-          __ st(at, destination_operand);
-        }
+	// 'at' is overwritten while saving the value to the destination.
+	// Therefore we can't use 'at'.  It is OK if the read from the source
+	// destroys 'at', since that happens before the value is read.
+	__ ld(kLithiumScratchReg2, source_operand);
+	__ st(kLithiumScratchReg2, destination_operand);
       } else {
         __ ld(kLithiumScratchReg, source_operand);
         __ st(kLithiumScratchReg, destination_operand);
       }
-#endif
     }
 
   } else if (source->IsConstantOperand()) {
@@ -293,31 +278,28 @@ void LGapResolver::EmitMove(int index) {
       __ st(Register::from_code(source_register.code()), destination_operand);
     }
   } else if (source->IsDoubleStackSlot()) {
-    UNREACHABLE();
-#if 0
     MemOperand source_operand = cgen_->ToMemOperand(source);
     if (destination->IsDoubleRegister()) {
-      __ ldc1(cgen_->ToDoubleRegister(destination), source_operand);
+      __ ld(cgen_->ToDoubleRegister(destination), source_operand);
     } else {
       ASSERT(destination->IsDoubleStackSlot());
       MemOperand destination_operand = cgen_->ToMemOperand(destination);
       if (in_cycle_) {
-        // kLithiumScratchDouble was used to break the cycle,
+        // kLithiumScratchReg2 was used to break the cycle,
         // but kLithiumScratchReg is free.
         MemOperand source_high_operand =
             cgen_->ToHighMemOperand(source);
         MemOperand destination_high_operand =
             cgen_->ToHighMemOperand(destination);
-        __ lw(kLithiumScratchReg, source_operand);
-        __ sw(kLithiumScratchReg, destination_operand);
-        __ lw(kLithiumScratchReg, source_high_operand);
-        __ sw(kLithiumScratchReg, destination_high_operand);
+        __ ld4u(kLithiumScratchReg, source_operand);
+        __ st4(kLithiumScratchReg, destination_operand);
+        __ ld4u(kLithiumScratchReg, source_high_operand);
+        __ st4(kLithiumScratchReg, destination_high_operand);
       } else {
-        __ ldc1(kLithiumScratchDouble, source_operand);
-        __ sdc1(kLithiumScratchDouble, destination_operand);
+        __ ld(kLithiumScratchReg2, source_operand);
+        __ st(kLithiumScratchReg2, destination_operand);
       }
     }
-#endif
   } else {
     UNREACHABLE();
   }

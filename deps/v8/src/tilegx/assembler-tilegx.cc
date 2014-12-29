@@ -578,7 +578,28 @@ void Assembler::ld4s(const Register& rd, const MemOperand& rs, int line) {
     ld4s(rd, rs.rm(), line);
 }
 
+void Assembler::ld4s(const DoubleRegister& rd, const MemOperand& rs, int line) {
+  ASSERT(rd.is_valid() && rs.rm().is_valid() && is_int16(rs.offset_));
+  if (rs.offset_ != 0) {
+    if (is_int16(rs.offset_)) {
+      Instr instr = ADDLI_X1 | DEST_X1(at.code())
+	| SRCA_X1(rs.rm().code()) | IMM16_X1(rs.offset_);
+      emit(instr, line);
+      instr = LD4S_X1 | DEST_X1(rd.code()) | SRCA_X1(at.code());
+      emit(instr, line);
+    } else
+      UNREACHABLE();
+  } else
+    ld4s(rd, rs.rm(), line);
+}
+
 void Assembler::ld4s(const Register& rd, const Register& rs, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = LD4S_X1 | DEST_X1(rd.code()) | SRCA_X1(rs.code());
+  emit(instr, line);
+}
+
+void Assembler::ld4s(const DoubleRegister& rd, const Register& rs, int line) {
   ASSERT(rd.is_valid() && rs.is_valid());
   Instr instr = LD4S_X1 | DEST_X1(rd.code()) | SRCA_X1(rs.code());
   emit(instr, line);
@@ -597,9 +618,23 @@ void Assembler::fsingle_pack2(const Register& rd, const Register& rsa, const Reg
   emit(instr, line);
 }
 
+void Assembler::fdouble_pack1(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_PACK1_X0 | DEST_X0(rd.code())
+	               | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
 void Assembler::fdouble_pack1(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_PACK1_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_pack2(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_PACK2_X0 | DEST_X0(rd.code())
 	               | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
@@ -607,6 +642,13 @@ void Assembler::fdouble_pack1(const Register& rd, const Register& rsa, const Reg
 void Assembler::fdouble_pack2(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_PACK2_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_add_flags(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_ADD_FLAGS_X0 | DEST_X0(rd.code())
 	               | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
@@ -614,7 +656,22 @@ void Assembler::fdouble_pack2(const Register& rd, const Register& rsa, const Reg
 void Assembler::fdouble_add_flags(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_ADD_FLAGS_X0 | DEST_X0(rd.code())
-	               | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_add_flags(const Register& rd, const DoubleRegister& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_ADD_FLAGS_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_addsub(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_ADDSUB_X0 | DEST_X0(rd.code())
+                       | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
 
@@ -622,6 +679,46 @@ void Assembler::fdouble_addsub(const Register& rd, const Register& rsa, const Re
 {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_ADDSUB_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_mul_flags(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_MUL_FLAGS_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_mul_flags(const Register& rd, const Register& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_MUL_FLAGS_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_sub_flags(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_SUB_FLAGS_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_sub_flags(const Register& rd, const Register& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_SUB_FLAGS_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_max(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MAX_X0 | DEST_X0(rd.code())
                        | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
@@ -630,6 +727,22 @@ void Assembler::fdouble_unpack_max(const Register& rd, const Register& rsa, cons
 {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_UNPACK_MAX_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_max(const Register& rd, const DoubleRegister& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MAX_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_min(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MIN_X0 | DEST_X0(rd.code())
                        | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
@@ -638,7 +751,15 @@ void Assembler::fdouble_unpack_min(const Register& rd, const Register& rsa, cons
 {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = FDOUBLE_UNPACK_MIN_X0 | DEST_X0(rd.code())
-                       | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::fdouble_unpack_min(const Register& rd, const DoubleRegister& rsa, const Register& rsb, int line)
+{
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = FDOUBLE_UNPACK_MIN_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rsa.code()) | SRCB_X0(rsb.code());
   emit(instr, line);
 }
 
@@ -646,6 +767,13 @@ void Assembler::add(const Register& rd, const Register& rsa, const Register& rsb
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = ADD_X1 | DEST_X1(rd.code())
 	               | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::add(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
   emit(instr, line);
 }
 
@@ -670,13 +798,6 @@ void Assembler::subx(const Register& rd, const Register& rsa, const Register& rs
   emit(instr, line);
 }
 
-void Assembler::nor(const Register& rd, const Register& rsa, const Register& rsb, int line) {
-  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
-  Instr instr = NOR_X1 | DEST_X1(rd.code())
-	               | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
-  emit(instr, line);
-}
-
 void Assembler::mulx(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = MULX_X0 | DEST_X0(rd.code())
@@ -688,6 +809,13 @@ void Assembler::addi(const Register& rd, const Register& rs, int8_t imm, int lin
   ASSERT(rd.is_valid() && rs.is_valid() && is_int8(imm));
   Instr instr = ADDI_X1 | DEST_X1(rd.code())
 	                | SRCA_X1(rs.code()) | IMM8_X1(imm);
+  emit(instr, line);
+}
+
+void Assembler::addi(const DoubleRegister& rd, const DoubleRegister& rs, int8_t imm, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && is_int8(imm));
+  Instr instr = ADDI_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | IMM8_X1(imm);
   emit(instr, line);
 }
 
@@ -709,6 +837,13 @@ void Assembler::or_(const Register& rd, const Register& rsa, const Register& rsb
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = OR_X1 | DEST_X1(rd.code())
 	              | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::nor(const Register& rd, const Register& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = NOR_X1 | DEST_X1(rd.code())
+                       | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
   emit(instr, line);
 }
 
@@ -747,6 +882,13 @@ void Assembler::addli(const Register& rd, const Register& rs, int16_t imm, int l
   emit(instr, line);
 }
 
+void Assembler::addxli(const Register& rd, const Register& rs, int16_t imm, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && is_int16(imm));
+  Instr instr = ADDXLI_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | IMM16_X1(imm);
+  emit(instr, line);
+}
+
 void Assembler::bpt(int line) {
   Instr instr = BPT_X1;
   emit(instr, line);
@@ -761,6 +903,13 @@ void Assembler::info(const int16_t imm16, int line) {
 void Assembler::shl1add(const Register& rd, const Register& rsa, const Register& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = SHL1ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::shl3add(const Register& rd, const Register& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = SHL3ADD_X1 | DEST_X1(rd.code())
     | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
   emit(instr, line);
 }
@@ -782,6 +931,27 @@ void Assembler::move(const Register& rd, const Register& rs, int line) {
   ASSERT(rd.is_valid() && rs.is_valid());
   Instr instr = ADD_X1 | DEST_X1(rd.code())
 	               | SRCA_X1(zero.code()) | SRCB_X1(rs.code());
+  emit(instr, line);
+}
+
+void Assembler::move(const DoubleRegister& rd, const DoubleRegister& rs, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(zero.code()) | SRCB_X1(rs.code());
+  emit(instr, line);
+}
+
+void Assembler::moved2r(const Register& rd, const DoubleRegister& rs, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(zero.code()) | SRCB_X1(rs.code());
+  emit(instr, line);
+}
+
+void Assembler::mover2d(const DoubleRegister& rd, const Register& rs, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = ADD_X1 | DEST_X1(rd.code())
+    | SRCA_X1(zero.code()) | SRCB_X1(rs.code());
   emit(instr, line);
 }
 
@@ -832,6 +1002,13 @@ void Assembler::srl(const Register& rd, const Register& rs, int16_t imm, int lin
   emit(instr, line);
 }
 
+void Assembler::srl(const DoubleRegister& rd, const DoubleRegister& rs, int16_t imm, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = SHRUI_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | SHIFTIMM_X1(imm);
+  emit(instr, line);
+}
+
 void Assembler::srl(const Register& rd, const Register& rs, const Register& rt, int line) {
   ASSERT(rd.is_valid() && rs.is_valid());
   Instr instr = SHRU_X1 | DEST_X1(rd.code())
@@ -874,6 +1051,13 @@ void Assembler::sll(const Register& rd, const Register& rs, int16_t imm, int lin
   emit(instr, line);
 }
 
+void Assembler::sll(const DoubleRegister& rd, const DoubleRegister& rs, int16_t imm, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = SHLI_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | SHIFTIMM_X1(imm);
+  emit(instr, line);
+}
+
 void Assembler::sll(const Register& rd, const Register& rs, const Register& rt, int line) {
   ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
   Instr instr = SHL_X1 | DEST_X1(rd.code())
@@ -895,10 +1079,37 @@ void Assembler::sllx(const Register& rd, const Register& rs, const Register& rt,
   emit(instr, line);
 }
 
+void Assembler::rotl(const Register& rd, const Register& rs, const Register& rt, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = ROTL_X1 | DEST_X1(rd.code())
+    | SRCA_X1(rs.code()) | SRCB_X1(rt.code());
+  emit(instr, line);
+}
+
 void Assembler::mul_hs_hs(const Register& rd, const Register& rs, const Register& rt, int line) {
   ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
   Instr instr = MUL_HS_HS_X0 | DEST_X0(rd.code())
 	                | SRCA_X0(rs.code()) | SRCB_X0(rt.code());
+  emit(instr, line);
+}
+void Assembler::mul_hu_hu(const DoubleRegister& rd, const DoubleRegister& rs, const DoubleRegister& rt, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
+  Instr instr = MUL_HU_HU_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rs.code()) | SRCB_X0(rt.code());
+  emit(instr, line);
+}
+
+void Assembler::mul_hu_lu(const DoubleRegister& rd, const DoubleRegister& rs, const DoubleRegister& rt, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
+  Instr instr = MUL_HU_LU_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rs.code()) | SRCB_X0(rt.code());
+  emit(instr, line);
+}
+
+void Assembler::mula_hu_lu(const DoubleRegister& rd, const DoubleRegister& rs, const DoubleRegister& rt, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
+  Instr instr = MULA_HU_LU_X0 | DEST_X0(rd.code())
+    | SRCA_X0(rs.code()) | SRCB_X0(rt.code());
   emit(instr, line);
 }
 
@@ -909,7 +1120,7 @@ void Assembler::mul_ls_ls(const Register& rd, const Register& rs, const Register
   emit(instr, line);
 }
 
-void Assembler::mul_lu_lu(const Register& rd, const Register& rs, const Register& rt, int line) {
+void Assembler::mul_lu_lu(const DoubleRegister& rd, const DoubleRegister& rs, const DoubleRegister& rt, int line) {
   ASSERT(rd.is_valid() && rs.is_valid() && rt.is_valid());
   Instr instr = MUL_LU_LU_X0 | DEST_X0(rd.code())
 	                | SRCA_X0(rs.code()) | SRCB_X0(rt.code());
@@ -943,7 +1154,7 @@ void Assembler::print(Label* L) {
     while (l.is_linked()) {
       PrintF("@ %d ", l.pos());
       Instr instr = instr_at(l.pos());
-      if ((instr & ~kImm16Mask) == 0) {
+      if ((instr & ~kImm16BranchMask) == 0) {
         PrintF("value\n");
       } else {
         PrintF("0x%08lx\n", (long)instr);
@@ -959,12 +1170,12 @@ const int kEndOfChain = 0;
 
 int Assembler::target_at(int32_t pos) {
   Instr instr = instr_at(pos);
-  if ((instr & ~kImm16Mask) == 0) {
+  if ((instr & ~kImm16BranchMask) == 0) {
     // Emitted label constant, not part of a branch.
     if (instr == 0) {
        return kEndOfChain;
      } else {
-       int32_t imm18 =((instr & static_cast<int32_t>(kImm16Mask)) << 16) >> 14;
+       int32_t imm18 =((instr & static_cast<int32_t>(kImm16BranchMask)) << 16) >> 14;
        return (imm18 + pos);
      }
   }
@@ -1006,7 +1217,8 @@ int Assembler::target_at(int32_t pos) {
       return pos - delta;
     }
   } else {
-    int64_t imm30 = get_JumpOff_X1(instr) << 3;
+    int32_t imm30 = (((int)get_JumpOff_X1(instr)) << 5) >> 2;
+    //    int64_t imm30 = get_JumpOff_X1(instr) << 3;
     if (imm30 == kEndOfJumpChain) {
       // EndOfChain sentinel is returned directly, not relative to pc or pos.
       return kEndOfChain;
@@ -1018,7 +1230,7 @@ int Assembler::target_at(int32_t pos) {
 
 void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
   Instr instr = instr_at(pos);
-  if ((instr & ~kImm16Mask) == 0) {
+  if ((instr & ~kImm16BranchMask) == 0) {
     ASSERT(target_pos == kEndOfChain || target_pos >= 0);
     // Emitted label constant, not part of a branch.
     // Make label relative to Code* of generated Code object.
@@ -1331,7 +1543,8 @@ int Assembler::RelocateInternalReference(byte* pc, intptr_t pc_delta) {
                  instr_shl16insli1 | get_Imm16_X1(imm));
     return 3;  // Number of instructions patched.
   } else {
-    uint64_t imm30 = get_JumpOff_X1(instr) << 3;
+    int32_t imm30 = (((int)get_JumpOff_X1(instr)) << 5) >> 2;
+    //    uint64_t imm30 = get_JumpOff_X1(instr) << 3;
     if (static_cast<int32_t>(imm30) == kEndOfJumpChain) {
       return 0;  // Number of instructions patched.
     }
@@ -1441,7 +1654,8 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
 
 
 void Assembler::b(int32_t offset, int line) {
-  beqz(zero, offset, line);
+  //  Use jmp to allow long offset
+  j((int64_t)offset, line);
 }
 
 void Assembler::beqz(const Register& rs, int32_t offset, int line) {
@@ -1486,7 +1700,19 @@ void Assembler::bfins(const Register& rd, const Register& rs, int32_t offset1, i
   emit(instr, line);
 }
 
+void Assembler::bfins(const DoubleRegister& rd, const DoubleRegister& rs, int32_t offset1, int32_t offset2, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = BFINS_X0 | DEST_X0(rd.code()) | SRCA_X0(rs.code()) | BFSTART_X0(offset1) | BFEND_X0(offset2);
+  emit(instr, line);
+}
+
 void Assembler::bfextu(const Register& rd, const Register& rs, int32_t offset1, int32_t offset2, int line) {
+  ASSERT(rd.is_valid() && rs.is_valid());
+  Instr instr = BFEXTU_X0 | DEST_X0(rd.code()) | SRCA_X0(rs.code()) | BFSTART_X0(offset1) | BFEND_X0(offset2);
+  emit(instr, line);
+}
+
+void Assembler::bfextu(const DoubleRegister& rd, const DoubleRegister& rs, int32_t offset1, int32_t offset2, int line) {
   ASSERT(rd.is_valid() && rs.is_valid());
   Instr instr = BFEXTU_X0 | DEST_X0(rd.code()) | SRCA_X0(rs.code()) | BFSTART_X0(offset1) | BFEND_X0(offset2);
   emit(instr, line);
@@ -1535,6 +1761,12 @@ void Assembler::cmples(const Register& rd, const Register& rsa, const Register& 
 }
 
 void Assembler::cmpltu(const Register& rd, const Register& rsa, const Register& rsb, int line) {
+  ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
+  Instr instr = CMPLTU_X1 | DEST_X1(rd.code()) | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
+  emit(instr, line);
+}
+
+void Assembler::cmpltu(const DoubleRegister& rd, const DoubleRegister& rsa, const DoubleRegister& rsb, int line) {
   ASSERT(rd.is_valid() && rsa.is_valid() && rsb.is_valid());
   Instr instr = CMPLTU_X1 | DEST_X1(rd.code()) | SRCA_X1(rsa.code()) | SRCB_X1(rsb.code());
   emit(instr, line);
@@ -1785,7 +2017,7 @@ int32_t Assembler::get_trampoline_entry(int32_t pos) {
 }
 
 uint32_t Assembler::GetLabelConst(Instr instr) {
-  return instr & ~kImm16Mask;
+  return instr & ~kImm16BranchMask;
 }
 
 bool Assembler::IsEmittedConstant(Instr instr) {

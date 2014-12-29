@@ -1426,6 +1426,82 @@ ExternalReference ExternalReference::cvt_double_to_float(
                                     BUILTIN_SFP_CALL));
 }
 
+#ifdef __tilegx__
+static double sqrt_d(double x)
+{
+  return sqrt(x);
+}
+
+ExternalReference ExternalReference::sqrt_double(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(sqrt_d),
+                                    BUILTIN_SFP_CALL));
+}
+
+static double exp_d(double x)
+{
+  return exp(x);
+}
+
+ExternalReference ExternalReference::exp_double(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(exp_d),
+                                    BUILTIN_SFP_CALL));
+}
+
+static int64_t cvt_truncate_d2i(double x)
+{
+  return (int64_t)x & 0xffffffff;
+}
+
+static int cvt_round_d2i(double x)
+{
+  // FIXME: Rounding mode?
+  return (int)(x + 0.5);
+}
+
+ExternalReference ExternalReference::cvt_truncate_double_to_int(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(cvt_truncate_d2i),
+                                    BUILTIN_SFP_CALL));
+}
+
+ExternalReference ExternalReference::cvt_round_double_to_int(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(cvt_round_d2i),
+                                    BUILTIN_SFP_CALL));
+}
+
+static int div_ints(int x, int y) {
+  return x / y;
+}
+
+
+static int mod_ints(int x, int y) {
+  return modulo(x, y);
+}
+
+ExternalReference ExternalReference::div_two_ints(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(div_ints),
+                                    BUILTIN_SFP_CALL));
+}
+
+ExternalReference ExternalReference::mod_two_ints(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(mod_ints),
+                                    BUILTIN_SFP_CALL));
+}
+
+
+#endif // __tilegx__
+
 ExternalReference ExternalReference::math_sin_double_function(
     Isolate* isolate) {
   return ExternalReference(Redirect(isolate,

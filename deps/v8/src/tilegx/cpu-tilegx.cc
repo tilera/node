@@ -53,7 +53,8 @@ void CPU::SetUp() {
 
 
 bool CPU::SupportsCrankshaft() {
-  return CpuFeatures::IsSupported(FPU);
+  return true;
+  //  return CpuFeatures::IsSupported(FPU);
 }
 
 

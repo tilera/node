@@ -747,7 +747,7 @@ static MemOperand GenerateMappedArgumentsLookup(MacroAssembler* masm,
   const int kOffset =
       FixedArray::kHeaderSize + 2 * kPointerSize - kHeapObjectTag;
 
-  __ SmiUntag(scratch3, key);
+  __ SmiUntagUnsigned(scratch3, key);
 
   __ li(scratch2, Operand(kPointerSize));
   __ Mul(scratch3, scratch3, scratch2);
@@ -765,7 +765,7 @@ static MemOperand GenerateMappedArgumentsLookup(MacroAssembler* masm,
   __ ld(scratch1, FieldMemOperand(scratch1, FixedArray::kHeaderSize));
   __ li(scratch3, Operand(kPointerSize));
 
-  __ SmiUntag(scratch2, scratch2);
+  __ SmiUntagUnsigned(scratch2, scratch2);
   __ Mul(scratch3, scratch2, scratch3);
 
   __ Addu(scratch3, scratch3, Operand(Context::kHeaderSize - kHeapObjectTag));
@@ -794,7 +794,7 @@ static MemOperand GenerateUnmappedArgumentsLookup(MacroAssembler* masm,
   __ ld(scratch, FieldMemOperand(backing_store, FixedArray::kLengthOffset));
   __ Branch(slow_case, Ugreater_equal, key, Operand(scratch));
   __ li(at2, Operand(kPointerSize));
-  __ SmiUntag(scratch, key);
+  __ SmiUntagUnsigned(scratch, key);
   __ Mul(scratch, scratch, at2);
   __ Addu(scratch,
           scratch,

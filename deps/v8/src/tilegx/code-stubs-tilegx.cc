@@ -610,6 +610,7 @@ void FloatingPointHelper::ConvertIntToDouble(MacroAssembler* masm,
   ASSERT(!int_scratch.is(scratch3));
   ASSERT(!int_scratch.is(dst));
 
+  __ addx(int_scratch, int_scratch, zero); // Sign-extend
   // {
   __ cmpltsi(dst, int_scratch, 0);
   __ sub(scratch2, zero, int_scratch);
@@ -791,35 +792,58 @@ void FloatingPointHelper::DoubleIs32BitInteger(MacroAssembler* masm,
 }
 
 void FloatingPointHelper::LoadNumberAsInt32(MacroAssembler* masm,
-                                            Register object,
+                                            Register object_or_value,
                                             Register dst,
                                             Register heap_number_map,
                                             Register scratch1,
                                             Register scratch2,
                                             Register scratch3,
-                                            Label* not_int32) {
-  ASSERT(!dst.is(object));
-  ASSERT(!scratch1.is(object) && !scratch2.is(object) && !scratch3.is(object));
+                                            Label* not_int32,
+					    bool skip_load) {
+  ASSERT(!dst.is(object_or_value));
+  ASSERT(!scratch1.is(object_or_value) && !scratch2.is(object_or_value) && 
+         !scratch3.is(object_or_value));
   ASSERT(!scratch1.is(scratch2) &&
          !scratch1.is(scratch3) &&
          !scratch2.is(scratch3));
 
   Label done, maybe_undefined;
 
-  __ UntagAndJumpIfSmi(dst, object, &done);
+  // If skip_load is true, object_or_value is the double value, else it
+  // is the object from which the double must be loaded.
+  if (!skip_load) {
+    __ UntagAndJumpIfSmi(dst, object_or_value, &done);
 
-  __ AssertRootValue(heap_number_map,
-                     Heap::kHeapNumberMapRootIndex,
-                     "HeapNumberMap register clobbered.");
+    __ AssertRootValue(heap_number_map,
+		       Heap::kHeapNumberMapRootIndex,
+		       "HeapNumberMap register clobbered.");
 
-  __ JumpIfNotHeapNumber(object, heap_number_map, scratch1, &maybe_undefined);
+    __ JumpIfNotHeapNumber(object_or_value, heap_number_map, scratch1, &maybe_undefined);
 
-  // Load the double value in the destination registers.
-  __ ld(scratch1, FieldMemOperand(object, HeapNumber::kValueOffset));
+    // Load the double value in the destination registers.
+    __ ld(dst, FieldMemOperand(object_or_value, HeapNumber::kValueOffset));
+  } else {
+    __ move(dst, object_or_value);
+  }
 
-  // Check for 0 and -0.
-  __ And(dst, scratch1, Operand(~0x8000000000000000L));
-  __ Branch(&done, eq, dst, Operand(zero));
+  // Check for 0 and -0, and return 0 for either.
+  Label nonzero; 
+  __ bfextu(scratch1, dst, 0, 62);
+  __ Branch(&nonzero, ne, scratch1, Operand(zero));
+  __ move(dst, zero);                                                                              
+  __ jmp(&done);                                                                                   
+  __ bind(&nonzero); 
+
+  // This line lets rundeltablue run, other lines prevent needless deopts.   ?????
+  //   __ Branch(&done, eq, dst, Operand(zero));
+   /*
+    Label nonzero;
+    __ And(scratch1, dst, Operand(~0x8000000000000000L));
+    __ Branch(&nonzero, ne, scratch1, Operand(zero));
+    __ move(dst, zero);
+    __ jmp(&done);
+    __ bind(&nonzero);
+   */
 
   DoubleIs32BitInteger(masm, scratch1, dst, scratch3, not_int32);
 
@@ -836,22 +860,25 @@ void FloatingPointHelper::LoadNumberAsInt32(MacroAssembler* masm,
   __ sll(scratch1, scratch1, scratch3);
   __ Or(dst, dst, scratch1);
   // Set the sign.
-  __ ld(scratch1, FieldMemOperand(object, HeapNumber::kValueOffset));
-  __ And(scratch1, scratch1, Operand(0x8000000000000000L));
+  if (!skip_load) {
+    __ ld(scratch1, FieldMemOperand(object_or_value, HeapNumber::kValueOffset));
+    __ And(scratch1, scratch1, Operand(0x8000000000000000L));
+  } else {
+    __ And(scratch1, object_or_value, Operand(0x8000000000000000L));
+  }
   Label skip_sub;
   __ Branch(&skip_sub, ge, scratch1, Operand(zero));
   __ Subu(dst, zero, dst);
   __ bind(&skip_sub);
 
-  __ Branch(&done);
-
-  __ bind(&maybe_undefined);
-  __ LoadRoot(at, Heap::kUndefinedValueRootIndex);
-  __ Branch(not_int32, ne, object, Operand(at));
-  // |undefined| is truncated to 0.
-  __ li(dst, Operand(Smi::FromInt(0)));
-  // Fall through.
-
+  if (!skip_load) {
+    __ bind(&maybe_undefined);
+    __ LoadRoot(at, Heap::kUndefinedValueRootIndex);
+    __ Branch(not_int32, ne, object_or_value, Operand(at));
+    // |undefined| is truncated to 0.
+    __ li(dst, Operand(Smi::FromInt(0)));
+    // Fall through.
+  }
   __ bind(&done);
 
 }
@@ -2055,7 +2082,7 @@ void BinaryOpStub_GenerateSmiSmiOperation(MacroAssembler* masm,
       __ Ret();
       break;
     case Token::SHR:
-      __ SmiUntag32(scratch1, left);
+      __ SmiUntagUnsigned(scratch1, left);
       __ GetLeastBitsFromSmi(scratch2, right, 5);
       __ srl(scratch1, scratch1, scratch2);
       __ bfexts(at2, scratch1, 0, 31);
@@ -2065,7 +2092,7 @@ void BinaryOpStub_GenerateSmiSmiOperation(MacroAssembler* masm,
       break;
     case Token::SHL:
       // Remove tags from operands.
-      __ SmiUntag32(scratch1, left);
+      __ SmiUntagUnsigned(scratch1, left);
       __ GetLeastBitsFromSmi(scratch2, right, 5);
       __ sll(scratch1, scratch1, scratch2);
       __ SmiTag(v0, scratch1);
@@ -2518,8 +2545,8 @@ void BinaryOpStub::GenerateRegisterArgsPush(MacroAssembler* masm) {
 
 
 void TranscendentalCacheStub::Generate(MacroAssembler* masm) {
-  // Untagged case: double input in f4, double result goes
-  //   into f4.
+  // Untagged case: double input in a0, double result goes
+  //   into a0.
   // Tagged case: tagged input on top of stack and in a0,
   //   tagged result (heap number) goes into v0.
 
@@ -2549,15 +2576,19 @@ void TranscendentalCacheStub::Generate(MacroAssembler* masm) {
 
     // Call C function to calculate the result and update the cache.
     // a0: precalculated cache entry address.
-    // a2 and a3: parts of the double value.
-    // Store a0, a2 and a3 on stack for later before calling C function.
-    __ Push(a3, a2, cache_entry);
+    // a0 contains the double value.
+    //    __ Push(a0);
+
     GenerateCallCFunction(masm, scratch0);
+    __ Ret();
+
+    /* CACHING NOT YET IMPLEMENTED
+
     __ move(scratch2, v0);
 
     // Try to update the cache. If we cannot allocate a
     // heap number, we return the result without updating.
-    __ Pop(a3, a2, cache_entry);
+    __ Pop(a0);
     __ LoadRoot(t1, Heap::kHeapNumberMapRootIndex);
     __ AllocateHeapNumber(t2, scratch0, scratch1, t1, &no_update);
     __ st(scratch2, FieldMemOperand(t2, HeapNumber::kValueOffset));
@@ -2585,6 +2616,8 @@ void TranscendentalCacheStub::Generate(MacroAssembler* masm) {
       __ CallRuntimeSaveDoubles(Runtime::kAllocateInNewSpace);
     }
     __ Ret();
+
+  */
   }
 }
 
@@ -2653,7 +2686,7 @@ void MathPowStub::Generate(MacroAssembler* masm) {
   ASSERT(exponent_type_ == ON_STACK);
   __ TailCallRuntime(Runtime::kMath_pow_cfunction, 2, 1);
 
-  // Shouldn't be executed.
+  // Shouldn't be executed. Other modes call directly.
   __ bpt();
 }
 
@@ -3105,6 +3138,7 @@ void InstanceofStub::Generate(MacroAssembler* masm) {
   const Register prototype = t0;  // Prototype of the function.
   const Register inline_site = t5;
   const Register scratch = a2;
+  const Register scratch2 = t4;
 
   const int32_t kDeltaToLoadBoolResult = 5 * kPointerSize;
 
@@ -3154,18 +3188,13 @@ void InstanceofStub::Generate(MacroAssembler* masm) {
     __ LoadFromSafepointRegisterSlot(scratch, t0);
     __ Subu(inline_site, ra, scratch);
     // Get the map location in scratch and patch it.
-    UNREACHABLE();
-    __ GetRelocatedValue(inline_site, scratch, v1);  // v1 used as scratch.
+    __ GetRelocatedValue(inline_site, scratch, scratch2, v1);  // v1 used as scratch.
     __ st(map, FieldMemOperand(scratch, JSGlobalPropertyCell::kValueOffset));
   }
 
   // Register mapping: a3 is object map and t0 is function prototype.
   // Get prototype of object into a2.
   __ ld(scratch, FieldMemOperand(map, Map::kPrototypeOffset));
-
-  // We don't need map any more. Use it as a scratch register.
-  Register scratch2 = map;
-  map = no_reg;
 
   // Loop through the prototype chain looking for the function prototype.
   __ LoadRoot(scratch2, Heap::kNullValueRootIndex);
@@ -3186,8 +3215,7 @@ void InstanceofStub::Generate(MacroAssembler* masm) {
     __ LoadRoot(v0, Heap::kTrueValueRootIndex);
     __ Addu(inline_site, inline_site, Operand(kDeltaToLoadBoolResult));
     // Get the boolean result location in scratch and patch it.
-    UNREACHABLE();
-    __ PatchRelocatedValue(inline_site, scratch, v0);
+    __ PatchRelocatedValue(inline_site, scratch, scratch2, v0);
 
     if (!ReturnTrueFalseObject()) {
       ASSERT_EQ(Smi::FromInt(0), 0);
@@ -3205,8 +3233,7 @@ void InstanceofStub::Generate(MacroAssembler* masm) {
     __ LoadRoot(v0, Heap::kFalseValueRootIndex);
     __ Addu(inline_site, inline_site, Operand(kDeltaToLoadBoolResult));
     // Get the boolean result location in scratch and patch it.
-    UNREACHABLE();
-    __ PatchRelocatedValue(inline_site, scratch, v0);
+    __ PatchRelocatedValue(inline_site, scratch, scratch2, v0);
 
     if (!ReturnTrueFalseObject()) {
       __ li(v0, Operand(Smi::FromInt(1)));
