@@ -1,9 +1,12 @@
 node.js for tilegx
 
-This 10/23/14 tilegx version of node.js is v0.10.29, but using v8-3.18.5.
+This 12/28/14 tilegx version of node.js is v0.10.29, but using v8-3.18.5.
 Hence, some small source changes were needed in node.js both for the platform
 and for the (newer) v8 version.  Many tests were modified to increase timeout
 values.
+
+The 12/28/14 version includes v8 crankshaft support that was not yet present
+in the 10/23/14 version, but is otherwise the same.
 
 To build on a full MDE 4.3 or later installation:
   make node -j 20   // ends failing to find libv8_base.a
